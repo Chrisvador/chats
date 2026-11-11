@@ -23,7 +23,7 @@ function local(tz: string) {
 }
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
 const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
-const TYPES: Record<string, string> = { vermifuge: "Vermifuge", antiparasitaire: "Antiparasitaire", vaccin: "Vaccin", medicament: "Médicament", soin: "Soin", autre: "Traitement" };
+const TYPES: Record<string, string> = { vermifuge: "Vermifuge", antiparasitaire: "Antiparasitaire", vaccin: "Vaccin", medicament: "Médicament", soin: "Soin", entretien: "Entretien", autre: "Traitement" };
 const UNITES: Record<string, string> = { kg: "kg", g: "g", sachet: "sachets", boite: "boîtes", unite: "unités", l: "l" };
 const fmtQ = (q: number, u: string) => `${(Math.round(q * 10) / 10).toLocaleString("fr-FR")} ${UNITES[u] ?? u}`;
 
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
       const retard = daysBetween(t.prochaine_date, now.date);
       const quand = retard <= 0 ? "aujourd'hui" : retard === 1 ? "en retard d'1 jour" : `en retard de ${retard} jours`;
       await send(subs, {
-        title: `${nomChat[t.chat_id] ?? "Chat"} · ${TYPES[t.type] ?? "Traitement"}`,
+        title: t.chat_id ? `${nomChat[t.chat_id] ?? "Chat"} · ${TYPES[t.type] ?? "Traitement"}` : `Maison · ${TYPES[t.type] ?? "Entretien"}`,
         body: `${t.nom}${t.dose ? " (" + t.dose + ")" : ""} — ${quand}`,
         tag: `tr-${t.id}`, url: `./#traitement/${t.id}`,
       });
@@ -89,10 +89,21 @@ Deno.serve(async (req) => {
     }
 
     // Stocks : alerte quand il reste moins que le seuil, répétée tous les 3 jours
-    const { data: pr } = await sb.from("produits").select("*").eq("foyer_id", f.id).eq("actif", true).gt("conso_jour", 0);
+    // Produits consommés par jour, ou à chaque tâche d'entretien liée (ex. filtres de fontaine)
+    const { data: pr } = await sb.from("produits").select("*").eq("foyer_id", f.id).eq("actif", true);
+    const { data: liees } = await sb.from("traitements").select("produit_id, jour_mois, frequence_jours, prochaine_date")
+      .eq("foyer_id", f.id).eq("actif", true).not("produit_id", "is", null).not("prochaine_date", "is", null);
     for (const p of pr ?? []) {
-      const reste = Math.max(0, Number(p.stock_ref) - Number(p.conso_jour) * Math.max(0, daysBetween(p.date_ref, now.date)));
-      const jours = Math.floor(reste / Number(p.conso_jour));
+      let reste: number, jours: number;
+      if (Number(p.conso_jour) > 0) {
+        reste = Math.max(0, Number(p.stock_ref) - Number(p.conso_jour) * Math.max(0, daysBetween(p.date_ref, now.date)));
+        jours = Math.floor(reste / Number(p.conso_jour));
+      } else {
+        const t = (liees ?? []).find((x) => x.produit_id === p.id && (x.jour_mois || x.frequence_jours));
+        if (!t) continue;
+        reste = Math.max(0, Math.floor(Number(p.stock_ref)));
+        jours = Math.round(Math.max(0, daysBetween(now.date, t.prochaine_date)) + reste * (t.jour_mois ? 30.44 : t.frequence_jours));
+      }
       if (jours > p.seuil_jours) continue;
       if (p.derniere_notif && p.derniere_notif > addDays(now.date, -3)) continue;
       await send(subs, {

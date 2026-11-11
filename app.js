@@ -38,10 +38,24 @@ function relDay(d) {
 
 const SEXES = { male: 'Mâle', femelle: 'Femelle' };
 const VIES = { interieur: 'Intérieur', exterieur: 'Extérieur', mixte: 'Intérieur et extérieur' };
-const TYPES = { vermifuge: 'Vermifuge', antiparasitaire: 'Antipuces / tiques', vaccin: 'Vaccin', medicament: 'Médicament', soin: 'Soin', autre: 'Autre' };
+const TYPES = { vermifuge: 'Vermifuge', antiparasitaire: 'Antipuces / tiques', vaccin: 'Vaccin', medicament: 'Médicament', soin: 'Soin', entretien: 'Entretien', autre: 'Autre' };
 const FREQS = [[0, 'Une seule fois'], [1, 'Tous les jours'], [7, 'Toutes les semaines'], [14, 'Toutes les 2 semaines'], [30, 'Tous les mois'], [90, 'Tous les 3 mois'], [180, 'Tous les 6 mois'], [365, 'Tous les ans']];
 const freqLbl = f => { if (!f) return 'Une seule fois'; const k = FREQS.find(x => x[0] === f); return k ? k[1] : `Tous les ${f} jours`; };
-const CATS = { croquettes: 'Croquettes', patee: 'Pâtée', friandises: 'Friandises', litiere: 'Litière', autre: 'Autre' };
+const freqTxt = t => t.jour_mois ? `Le ${t.jour_mois === 1 ? '1er' : t.jour_mois} de chaque mois` : freqLbl(t.frequence_jours);
+const periode = t => t.jour_mois ? 30.44 : (t.frequence_jours || 0);
+// Prochaine échéance après un soin fait le jour « done »
+function nextDate(t, done) {
+  if (t.jour_mois) {
+    const base = addDays(done, t.prochaine_date ? 10 : 0);   // fait jusqu'à 10 jours en avance : compte pour l'échéance proche
+    let [y, m] = base.split('-').map(Number);
+    const cand = (yy, mm) => `${yy}-${String(mm).padStart(2, '0')}-${String(t.jour_mois).padStart(2, '0')}`;
+    let d = cand(y, m); if (d <= base) { m++; if (m > 12) { m = 1; y++; } d = cand(y, m); }
+    return d;
+  }
+  return t.frequence_jours ? addDays(done, t.frequence_jours) : null;
+}
+const nextMonthDay = j => nextDate({ jour_mois: j }, addDays(today(), -1));
+const CATS = { croquettes: 'Croquettes', patee: 'Pâtée', friandises: 'Friandises', litiere: 'Litière', filtres: 'Filtres', autre: 'Autre' };
 const UNITES = { kg: 'kg', sachet: 'sachets', boite: 'boîtes', unite: 'unités', g: 'g', l: 'l' };
 const UNITE1 = { kg: 'kg', sachet: 'sachet', boite: 'boîte', unite: 'unité', g: 'g', l: 'l' };
 const qty = (q, u) => `${fmtNum(q, u === 'kg' || u === 'l' ? 2 : 1)} ${q > 1 || u === 'kg' || u === 'g' || u === 'l' ? UNITES[u] : UNITE1[u]}`;
@@ -83,13 +97,21 @@ const avatar = c => { const p = c && mainPhoto(c), u = p && url(thumb(p.chemin))
 
 /* ---------- calculs ---------- */
 const chatNom = id => (C.find(c => c.id === id) || {}).nom || '—';
+const sujet = t => t.chat_id ? chatNom(t.chat_id) : 'Maison';
+const I_HOME = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3c3 4 6 7.5 6 11a6 6 0 01-12 0c0-3.5 3-7 6-11z"/><path d="M9 15a3 3 0 003 3"/></svg>';
 const pesees = id => W.filter(w => w.chat_id === id).sort((a, b) => a.date.localeCompare(b.date));
 const poids = id => { const p = pesees(id); return p.length ? p[p.length - 1] : null; };
 const trActifs = () => TR.filter(t => t.actif);
 const etat = t => { if (!t.prochaine_date) return 'none'; const n = daysBetween(today(), t.prochaine_date); return n < 0 ? 'late' : n === 0 ? 'today' : n <= 7 ? 'soon' : 'later'; };
 const dus = () => trActifs().filter(t => t.prochaine_date && t.prochaine_date <= today());
+const tacheLiee = p => trActifs().find(t => t.produit_id === p.id && periode(t) && t.prochaine_date);
 function stockEst(p) { return Math.max(0, Number(p.stock_ref) - Number(p.conso_jour) * Math.max(0, daysBetween(p.date_ref, today()))); }
-function joursRestants(p) { return Number(p.conso_jour) > 0 ? Math.floor(stockEst(p) / Number(p.conso_jour)) : null; }
+function joursRestants(p) {
+  if (Number(p.conso_jour) > 0) return Math.floor(stockEst(p) / Number(p.conso_jour));
+  const t = tacheLiee(p); if (!t) return null;
+  const s = Math.floor(Number(p.stock_ref)), avant = Math.max(0, daysBetween(today(), t.prochaine_date));
+  return Math.round(avant + Math.max(0, s) * periode(t));   // rupture au changement suivant le dernier en stock
+}
 const stockAlerte = p => { const j = joursRestants(p); return j !== null && j <= p.seuil_jours; };
 
 /* ---------- données ---------- */
@@ -114,7 +136,7 @@ function setView(v) {
   document.querySelectorAll('.nav button').forEach(b => b.setAttribute('aria-current', b.dataset.v === v ? 'page' : 'false'));
   $('vChats').hidden = v !== 'chats'; $('vSoins').hidden = v !== 'soins'; $('vStocks').hidden = v !== 'stocks';
   $('title').textContent = { chats: 'Mes chats', soins: 'Soins', stocks: 'Stocks' }[v];
-  $('addLbl').textContent = { chats: 'Chat', soins: 'Traitement', stocks: 'Produit' }[v];
+  $('addLbl').textContent = { chats: 'Chat', soins: 'Ajouter', stocks: 'Produit' }[v];
   render(); window.scrollTo(0, 0);
 }
 function render() {
@@ -141,12 +163,12 @@ function renderChats() {
 }
 
 function trItem(t, withChat = true) {
-  const c = C.find(x => x.id === t.chat_id), e = etat(t);
+  const c = C.find(x => x.id === t.chat_id), e = etat(t), maison = !t.chat_id;
   const when = t.prochaine_date ? `<div class="when ${e === 'late' || e === 'today' ? 'late' : e === 'soon' ? 'soon' : ''}">${esc(relDay(t.prochaine_date))}</div>` : '';
   const btn = t.actif ? `<button class="btn sm ${e === 'late' || e === 'today' ? 'ok' : ''}" data-fait="${t.id}">Fait</button>` : '';
-  return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av">${avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES[t.type])}</span>`}
-    <div><div class="t">${withChat ? esc(c?.nom || '—') + ' · ' : ''}${esc(t.nom)}${t.dose ? ` <span class="s">(${esc(t.dose)})</span>` : ''}</div>
-    <div class="s">${withChat ? `<span class="tag ${t.type}">${esc(TYPES[t.type])}</span> ` : ''}${esc(freqLbl(t.frequence_jours))}</div>${when}</div>${btn}</div>`;
+  return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av">${maison ? I_HOME : avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES[t.type])}</span>`}
+    <div><div class="t">${withChat && !maison ? esc(c?.nom || '—') + ' · ' : ''}${esc(t.nom)}${t.dose ? ` <span class="s">(${esc(t.dose)})</span>` : ''}</div>
+    <div class="s">${withChat ? `<span class="tag ${t.type}">${esc(TYPES[t.type])}</span> ` : ''}${esc(freqTxt(t))}</div>${when}</div>${btn}</div>`;
 }
 function bindTr(root) {
   root.querySelectorAll('[data-fait]').forEach(b => b.onclick = e => { e.stopPropagation(); faitForm(TR.find(t => t.id === b.dataset.fait)); });
@@ -155,18 +177,20 @@ function bindTr(root) {
 
 function renderSoins() {
   const vivants = C.filter(c => !c.decede);
-  if (soinFilter !== 'tous' && !C.some(c => c.id === soinFilter)) soinFilter = 'tous';
-  const keep = t => soinFilter === 'tous' || t.chat_id === soinFilter;
+  const aMaison = TR.some(t => !t.chat_id);
+  if (soinFilter !== 'tous' && !(soinFilter === 'maison' && aMaison) && !C.some(c => c.id === soinFilter)) soinFilter = 'tous';
+  const keep = t => soinFilter === 'tous' || (soinFilter === 'maison' ? !t.chat_id : t.chat_id === soinFilter);
+  const filtres = [['tous', 'Tous']].concat(vivants.map(c => [c.id, c.nom]), aMaison ? [['maison', 'Maison']] : []);
   const act = trActifs().filter(keep).sort((a, b) => (a.prochaine_date || '9999').localeCompare(b.prochaine_date || '9999'));
   const g = { late: [], today: [], soon: [], later: [], none: [] }; act.forEach(t => g[etat(t)].push(t));
   const sec = (k, titre) => g[k].length ? `<div class="group">${titre}</div><div class="list">${g[k].map(t => trItem(t)).join('')}</div>` : '';
   const hist = PR.filter(keep).slice(0, 15);
   const fini = TR.filter(t => !t.actif).filter(keep).slice(0, 20);
-  $('vSoins').innerHTML = `${vivants.length > 1 ? `<div class="seg" role="group" aria-label="Chat">${[['tous', 'Tous']].concat(vivants.map(c => [c.id, c.nom])).map(([id, n]) => `<button data-sf="${id}" aria-pressed="${soinFilter === id}">${esc(n)}</button>`).join('')}</div>` : ''}
+  $('vSoins').innerHTML = `${filtres.length > 2 ? `<div class="seg" role="group" aria-label="Filtrer">${filtres.map(([id, n]) => `<button data-sf="${id}" aria-pressed="${soinFilter === id}">${esc(n)}</button>`).join('')}</div>` : ''}
     ${act.length ? sec('late', 'En retard') + sec('today', "Aujourd'hui") + sec('soon', '7 prochains jours') + sec('later', 'Plus tard') + sec('none', 'Sans date prévue')
-      : `<div class="empty" style="margin-top:14px">${C.length ? 'Aucun traitement en cours.<br>Ajoutez vermifuge, antipuces, vaccins… avec le bouton <b>Traitement</b>.' : "Ajoutez d'abord vos chats."}</div>`}
+      : `<div class="empty" style="margin-top:14px">${C.length ? 'Rien de prévu.<br>Ajoutez vermifuge, antipuces, vaccins ou entretien de la fontaine avec le bouton <b>Ajouter</b>.' : "Ajoutez d'abord vos chats."}</div>`}
     ${hist.length ? `<div class="group">Derniers soins faits</div><div class="box"><ul class="hist">${hist.map(p => { const t = TR.find(x => x.id === p.traitement_id); const m = membres.find(x => x.user_id === p.fait_par);
-      return `<li><span class="d">${esc(fmtDate(p.date))}</span><span class="x"><b style="color:var(--fg)">${esc(chatNom(p.chat_id))}</b> · ${esc(t ? t.nom : 'Traitement')}${m && m.prenom ? ' · ' + esc(m.prenom) : ''}${p.notes ? ' — ' + esc(p.notes) : ''}</span><button class="iconbtn" data-delp="${p.id}" aria-label="Supprimer">${I_DEL}</button></li>`; }).join('')}</ul></div>` : ''}
+      return `<li><span class="d">${esc(fmtDate(p.date))}</span><span class="x"><b style="color:var(--fg)">${esc(p.chat_id ? chatNom(p.chat_id) : 'Maison')}</b> · ${esc(t ? t.nom : 'Traitement')}${m && m.prenom ? ' · ' + esc(m.prenom) : ''}${p.notes ? ' — ' + esc(p.notes) : ''}</span><button class="iconbtn" data-delp="${p.id}" aria-label="Supprimer">${I_DEL}</button></li>`; }).join('')}</ul></div>` : ''}
     ${fini.length ? `<details><summary class="group" style="cursor:pointer">Traitements terminés (${fini.length})</summary><div class="list">${fini.map(t => trItem(t)).join('')}</div></details>` : ''}`;
   $('vSoins').querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { soinFilter = b.dataset.sf; renderSoins(); });
   $('vSoins').querySelectorAll('[data-delp]').forEach(b => b.onclick = () => delPrise(b.dataset.delp));
@@ -179,7 +203,8 @@ function renderStocks() {
   const card = p => {
     const est = stockEst(p), j = joursRestants(p), lvl = j === null ? '' : j <= Math.max(1, p.seuil_jours / 2) ? 'red' : j <= p.seuil_jours ? 'amber' : '';
     const pct = j !== null ? Math.min(100, j / (Math.max(1, p.seuil_jours) * 4) * 100) : Number(p.stock_ref) > 0 ? Math.min(100, est / Number(p.stock_ref) * 100) : 0;
-    const consoTxt = Number(p.conso_jour) > 0 ? (p.unite === 'kg' ? `${fmtNum(p.conso_jour * 1000, 0)} g/jour` : `${fmtNum(p.conso_jour, 2)} ${Number(p.conso_jour) > 1 ? UNITES[p.unite] : UNITE1[p.unite]}/jour`) : 'Conso. non renseignée';
+    const lie = tacheLiee(p);
+    const consoTxt = lie && !(Number(p.conso_jour) > 0) ? `1 ${UNITE1[p.unite]} · ${freqTxt(lie).toLowerCase()}` : Number(p.conso_jour) > 0 ? (p.unite === 'kg' ? `${fmtNum(p.conso_jour * 1000, 0)} g/jour` : `${fmtNum(p.conso_jour, 2)} ${Number(p.conso_jour) > 1 ? UNITES[p.unite] : UNITE1[p.unite]}/jour`) : 'Conso. non renseignée';
     return `<div class="stock" data-p="${p.id}"><div class="stock-h"><h3>${esc(p.nom)}</h3><span class="tag">${esc(CATS[p.categorie])}</span></div>
       <div class="gauge ${lvl}"><i style="width:${pct.toFixed(0)}%"></i></div>
       <div class="stock-n"><span>Reste <b>${esc(qty(est, p.unite))}</b></span>${j !== null ? `<span><b style="color:${lvl ? `var(--${lvl})` : 'inherit'}">${j <= 0 ? 'Épuisé' : plur(j, 'jour')}</b>${j > 0 ? ` · jusqu'au ${esc(fmtDate(addDays(today(), j)))}` : ''}</span>` : ''}<span>${esc(consoTxt)}</span></div>
@@ -354,17 +379,22 @@ async function delPesee(id) {
 
 /* ---------- traitements ---------- */
 function trForm(t, chatId, back) {
-  const n = !t; t = t || { chat_id: chatId || (C.filter(c => !c.decede)[0] || {}).id, type: 'vermifuge', frequence_jours: 90, prochaine_date: today(), actif: true };
-  if (!C.length) { toast("Ajoutez d'abord un chat"); return; }
-  const custom = t.frequence_jours && !FREQS.some(f => f[0] === t.frequence_jours);
+  const n = !t;
+  if (!t) t = chatId === 'maison' || !C.some(c => !c.decede)
+    ? { chat_id: null, type: 'entretien', jour_mois: 1, prochaine_date: nextMonthDay(1), actif: true }
+    : { chat_id: chatId || C.filter(c => !c.decede)[0].id, type: 'vermifuge', frequence_jours: 90, prochaine_date: today(), actif: true };
+  const custom = !t.jour_mois && t.frequence_jours && !FREQS.some(f => f[0] === t.frequence_jours);
+  const fsel = t.jour_mois ? 'm' : custom ? 'x' : String(t.frequence_jours || 0);
   const ofThis = PR.filter(p => p.traitement_id === t.id).slice(0, 8);
-  openSheet(n ? 'Nouveau traitement' : t.nom, `<form class="f" id="ft">
-    <div class="row2"><label class="field"><span>Chat</span><select id="t_chat">${C.filter(c => !c.decede || c.id === t.chat_id).map(c => `<option value="${c.id}"${c.id === t.chat_id ? ' selected' : ''}>${esc(c.nom)}</option>`).join('')}</select></label>
+  openSheet(n ? 'Nouveau soin ou entretien' : t.nom, `<form class="f" id="ft">
+    <div class="row2"><label class="field"><span>Pour</span><select id="t_chat"><option value=""${t.chat_id ? '' : ' selected'}>Maison (fontaine, litière…)</option>${C.filter(c => !c.decede || c.id === t.chat_id).map(c => `<option value="${c.id}"${c.id === t.chat_id ? ' selected' : ''}>${esc(c.nom)}</option>`).join('')}</select></label>
       <label class="field"><span>Type</span><select id="t_type">${Object.entries(TYPES).map(([k, l]) => `<option value="${k}"${t.type === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
-    <label class="field"><span>Produit / intitulé *</span><input id="t_nom" required value="${esc(t.nom)}" placeholder="Ex. Milbemax, Frontline, Typhus-Coryza…"></label>
-    <label class="field"><span>Dose</span><input id="t_dose" value="${esc(t.dose)}" placeholder="Ex. 1 comprimé, 1 pipette 0,5 ml"></label>
-    <div class="row2"><label class="field"><span>Fréquence</span><select id="t_freq">${FREQS.map(([d, l]) => `<option value="${d}"${!custom && (t.frequence_jours || 0) === d ? ' selected' : ''}>${l}</option>`).join('')}<option value="x"${custom ? ' selected' : ''}>Autre…</option></select></label>
-      <label class="field" id="t_jF"${custom ? '' : ' hidden'}><span>Tous les … jours</span><input id="t_j" type="number" min="1" max="1000" value="${custom ? t.frequence_jours : ''}"></label></div>
+    <label class="field"><span>Produit / intitulé *</span><input id="t_nom" required value="${esc(t.nom)}" placeholder="Ex. Milbemax, Typhus-Coryza, Fontaine — filtre…"></label>
+    <label class="field"><span>Dose / détail</span><input id="t_dose" value="${esc(t.dose)}" placeholder="Ex. 1 comprimé, 1 pipette 0,5 ml"></label>
+    <div class="row2"><label class="field"><span>Fréquence</span><select id="t_freq">${FREQS.map(([d, l]) => `<option value="${d}"${fsel === String(d) ? ' selected' : ''}>${l}</option>`).join('')}<option value="m"${fsel === 'm' ? ' selected' : ''}>Chaque mois, à jour fixe</option><option value="x"${fsel === 'x' ? ' selected' : ''}>Autre…</option></select></label>
+      <label class="field" id="t_jF"${fsel === 'x' ? '' : ' hidden'}><span>Tous les … jours</span><input id="t_j" type="number" min="1" max="1000" value="${custom ? t.frequence_jours : ''}"></label>
+      <label class="field" id="t_mF"${fsel === 'm' ? '' : ' hidden'}><span>Le … du mois</span><select id="t_m">${Array.from({ length: 28 }, (_, i) => i + 1).map(j => `<option value="${j}"${(t.jour_mois || 1) === j ? ' selected' : ''}>${j === 1 ? '1er' : j}</option>`).join('')}</select></label></div>
+    <label class="field"><span>Consomme du stock</span><select id="t_prod"><option value="">Non</option>${PD.filter(p => p.actif || p.id === t.produit_id).map(p => `<option value="${p.id}"${p.id === t.produit_id ? ' selected' : ''}>1 ${esc(UNITE1[p.unite])} de « ${esc(p.nom)} »</option>`).join('')}</select><small>Ex. un filtre de fontaine : retiré du stock à chaque fois que c'est marqué fait.</small></label>
     <label class="field"><span>Prochaine date</span><input type="date" id="t_next" value="${esc(t.prochaine_date)}"><small>Un rappel est envoyé ce jour-là à l'heure réglée pour le foyer, puis chaque jour tant que ce n'est pas marqué fait.</small></label>
     <label class="field"><span>Notes</span><textarea id="t_notes">${esc(t.notes)}</textarea></label>
     ${n ? '' : `<label class="check"><input type="checkbox" id="t_act"${t.actif ? ' checked' : ''}>Traitement en cours (décocher pour l'arrêter)</label>`}
@@ -373,18 +403,21 @@ function trForm(t, chatId, back) {
       ${!n && t.actif ? '<button type="button" class="btn ok" id="t_fait">Marquer fait</button>' : ''}<button class="btn pri" type="submit">Enregistrer</button></div>
     ${ofThis.length ? `<div class="group">Historique</div><div class="box"><ul class="hist">${ofThis.map(p => `<li><span class="d">${esc(fmtDate(p.date))}</span><span class="x">${esc(p.notes || '')}</span></li>`).join('')}</ul></div>` : ''}
   </form>`, { back });
-  $('t_freq').onchange = () => { $('t_jF').hidden = $('t_freq').value !== 'x'; };
+  $('t_freq').onchange = () => { const v = $('t_freq').value; $('t_jF').hidden = v !== 'x'; $('t_mF').hidden = v !== 'm';
+    if (v === 'm' && n) $('t_next').value = nextMonthDay(+$('t_m').value); };
+  $('t_m').onchange = () => { $('t_next').value = nextMonthDay(+$('t_m').value); };
+  $('t_chat').onchange = () => { if (!$('t_chat').value) $('t_type').value = 'entretien'; else if ($('t_type').value === 'entretien') $('t_type').value = 'vermifuge'; };
   if (!n) { $('t_del').onclick = () => delTr(t, back); const f = $('t_fait'); if (f) f.onclick = () => faitForm(t, back); }
   $('ft').onsubmit = async e => {
     e.preventDefault();
-    const fv = $('t_freq').value, freq = fv === 'x' ? parseInt($('t_j').value, 10) || null : parseInt(fv, 10) || null;
-    const row = { chat_id: $('t_chat').value, type: $('t_type').value, nom: val('t_nom'), dose: val('t_dose'), frequence_jours: freq, prochaine_date: val('t_next'), notes: val('t_notes'), derniere_notif: null };
+    const fv = $('t_freq').value, freq = fv === 'x' ? parseInt($('t_j').value, 10) || null : fv === 'm' ? null : parseInt(fv, 10) || null;
+    const row = { chat_id: $('t_chat').value || null, jour_mois: fv === 'm' ? +$('t_m').value : null, produit_id: $('t_prod').value || null, type: $('t_type').value, nom: val('t_nom'), dose: val('t_dose'), frequence_jours: freq, prochaine_date: val('t_next'), notes: val('t_notes'), derniere_notif: null };
     if (!n) row.actif = $('t_act').checked;
     const r = n ? await sb.from('traitements').insert({ ...row, foyer_id: foyer.id }).select().single() : await sb.from('traitements').update(row).eq('id', t.id).select().single();
     if (r.error) { $('t_err').textContent = r.error.message; return; }
     TR = TR.filter(x => x.id !== r.data.id).concat(r.data); saveCache(); render();
     if (back) back(); else closeSheet();
-    toast('Traitement enregistré');
+    toast('Enregistré');
   };
 }
 async function delTr(t, back) {
@@ -394,22 +427,30 @@ async function delTr(t, back) {
 }
 function faitForm(t, back) {
   if (!t) return;
-  openSheet(`${chatNom(t.chat_id)} · ${t.nom}`, `<form class="f" id="fp">
+  const prod = t.produit_id && PD.find(p => p.id === t.produit_id);
+  openSheet(t.chat_id ? `${chatNom(t.chat_id)} · ${t.nom}` : t.nom, `<form class="f" id="fp">
     <label class="field"><span>Fait le</span><input type="date" id="p_d" value="${today()}" max="${today()}" required></label>
     <label class="field"><span>Remarque</span><input id="p_n" placeholder="Facultatif"></label>
     <p class="status" id="p_info"></p><p class="err" id="p_err"></p>
     <div class="foot"><button class="btn ok" type="submit">Valider</button></div></form>`, { back });
-  const info = () => { $('p_info').textContent = t.frequence_jours ? `Prochaine fois : ${fmtDate(addDays($('p_d').value || today(), t.frequence_jours))}` : 'Traitement ponctuel : il sera marqué terminé.'; };
+  const info = () => { const nx = nextDate(t, $('p_d').value || today());
+    $('p_info').textContent = (nx ? `Prochaine fois : ${fmtDate(nx)}` : 'Ponctuel : il sera marqué terminé.') + (prod ? ` · 1 ${UNITE1[prod.unite]} retiré de « ${prod.nom} » (reste ${fmtNum(Math.max(0, stockEst(prod) - 1), 1)}).` : ''); };
   $('p_d').oninput = info; info();
   $('fp').onsubmit = async e => {
     e.preventDefault();
     const d = $('p_d').value;
     const r = await sb.from('prises').insert({ foyer_id: foyer.id, traitement_id: t.id, chat_id: t.chat_id, date: d, fait_par: me.id, notes: val('p_n') }).select().single();
     if (r.error) { $('p_err').textContent = r.error.message; return; }
-    const upd = t.frequence_jours ? { prochaine_date: addDays(d, t.frequence_jours), derniere_notif: null } : { actif: false, prochaine_date: null, derniere_notif: null };
+    const nx = nextDate(t, d);
+    const upd = nx ? { prochaine_date: nx, derniere_notif: null } : { actif: false, prochaine_date: null, derniere_notif: null };
     const u = await sb.from('traitements').update(upd).eq('id', t.id).select().single();
     if (u.error) { $('p_err').textContent = u.error.message; return; }
-    PR.unshift(r.data); TR = TR.map(x => x.id === t.id ? u.data : x); saveCache(); render();
+    PR.unshift(r.data); TR = TR.map(x => x.id === t.id ? u.data : x);
+    if (prod && !(Number(prod.conso_jour) > 0)) {
+      const s = await sb.from('produits').update({ stock_ref: +Math.max(0, stockEst(prod) - 1).toFixed(2), date_ref: today(), derniere_notif: null }).eq('id', prod.id).select().single();
+      if (!s.error) PD = PD.map(x => x.id === prod.id ? s.data : x);
+    }
+    saveCache(); render();
     if (back) back(); else closeSheet();
     toast('Noté ✓');
   };
@@ -441,6 +482,9 @@ function produitForm(p) {
     $('d_cjL').textContent = u === 'kg' ? 'Consommation par jour (g)' : `Consommation par jour (${UNITES[u]})`;
     $('d_cjH').textContent = u === 'kg' ? 'Total pour tous les chats, ex. 3 chats × 50 g = 150 g' : 'Ex. 3 chats × 1 sachet = 3, ou 1,5 boîte'; };
   $('d_un').onchange = lab; lab();
+  $('d_cat').onchange = () => { if ($('d_cat').value !== 'filtres') return; $('d_un').value = 'unite'; lab();
+    $('d_cjH').textContent = "Laissez vide : liez plutôt ce produit à la tâche d'entretien (Soins → la tâche → « Consomme du stock »).";
+    if (n) $('d_seuil').value = 40; };
   if (!n) $('d_del').onclick = async () => { if (!confirm(`Supprimer « ${p.nom} » et ses achats ?`)) return;
     const { error } = await sb.from('produits').delete().eq('id', p.id); if (error) return fail(error);
     PD = PD.filter(x => x.id !== p.id); MV = MV.filter(x => x.produit_id !== p.id); saveCache(); closeSheet(); render(); };
