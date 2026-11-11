@@ -23,7 +23,9 @@ function local(tz: string) {
 }
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
 const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
-const TYPES: Record<string, string> = { vermifuge: "Vermifuge", antiparasitaire: "Antiparasitaire", vaccin: "Vaccin", medicament: "Médicament", soin: "Soin", entretien: "Entretien", autre: "Traitement" };
+const TYPES: Record<string, string> = { vermifuge: "Vermifuge", antiparasitaire: "Antiparasitaire", vaccin: "Vaccin", medicament: "Médicament", soin: "Soin", entretien: "Entretien", rdv: "RDV vétérinaire", autre: "Traitement" };
+const MOTIFS: Record<string, string> = { controle: "Contrôle", vaccin: "Vaccin", puce: "Puçage", sterilisation: "Stérilisation", maladie: "Consultation", dents: "Dents", analyses: "Analyses", autre: "Rendez-vous" };
+const fmtH = (h: string | null) => h ? " à " + h.slice(0, 5).replace(":", " h ").replace(/ h 00$/, " h") : "";
 const UNITES: Record<string, string> = { kg: "kg", g: "g", sachet: "sachets", boite: "boîtes", unite: "unités", l: "l" };
 const fmtQ = (q: number, u: string) => `${(Math.round(q * 10) / 10).toLocaleString("fr-FR")} ${UNITES[u] ?? u}`;
 
@@ -75,9 +77,21 @@ Deno.serve(async (req) => {
 
     // Traitements dus (aujourd'hui ou en retard), rappel une fois par jour jusqu'à ce qu'ils soient faits
     const { data: tr } = await sb.from("traitements").select("*").eq("foyer_id", f.id).eq("actif", true)
-      .not("prochaine_date", "is", null).lte("prochaine_date", now.date);
-    const dus = (tr ?? []).filter((t) => !t.derniere_notif || t.derniere_notif < now.date);
+      .not("prochaine_date", "is", null).lte("prochaine_date", addDays(now.date, 1));
+    // Soins : le jour J puis chaque jour tant que non fait. RDV véto : la veille et le jour même seulement.
+    const dus = (tr ?? []).filter((t) => (!t.derniere_notif || t.derniere_notif < now.date) &&
+      (t.type === "rdv" ? t.prochaine_date >= now.date : t.prochaine_date <= now.date));
     for (const t of dus) {
+      if (t.type === "rdv") {
+        const demain = t.prochaine_date > now.date;
+        await send(subs, {
+          title: `${nomChat[t.chat_id] ?? "Chat"} · vétérinaire ${demain ? "demain" : "aujourd'hui"}${fmtH(t.heure)}`,
+          body: [t.nom || MOTIFS[t.motif] || "Rendez-vous", t.lieu, t.notes].filter(Boolean).join(" — "),
+          tag: `rdv-${t.id}`, url: `./#chat/${t.chat_id}`,
+        });
+        await sb.from("traitements").update({ derniere_notif: now.date }).eq("id", t.id);
+        continue;
+      }
       const retard = daysBetween(t.prochaine_date, now.date);
       const quand = retard <= 0 ? "aujourd'hui" : retard === 1 ? "en retard d'1 jour" : `en retard de ${retard} jours`;
       await send(subs, {

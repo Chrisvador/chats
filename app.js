@@ -39,6 +39,12 @@ function relDay(d) {
 const SEXES = { male: 'Mâle', femelle: 'Femelle' };
 const VIES = { interieur: 'Intérieur', exterieur: 'Extérieur', mixte: 'Intérieur et extérieur' };
 const TYPES = { vermifuge: 'Vermifuge', antiparasitaire: 'Antipuces / tiques', vaccin: 'Vaccin', medicament: 'Médicament', soin: 'Soin', entretien: 'Entretien', autre: 'Autre' };
+const TYPES_ALL = { ...TYPES, rdv: 'RDV vétérinaire' };
+const MOTIFS = { controle: 'Contrôle / bilan', vaccin: 'Vaccin', puce: 'Puçage / identification', sterilisation: 'Stérilisation', maladie: 'Maladie / blessure', dents: 'Dents / détartrage', analyses: 'Analyses', autre: 'Autre' };
+const fmtHeure = h => h ? h.slice(0, 5).replace(':', ' h ').replace(/ h 00$/, ' h') : '';
+const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+const fmtJour = d => `${JOURS[new Date(d + 'T12:00:00').getDay()]} ${fmtDate(d)}`;
+const isRdv = t => t.type === 'rdv';
 const FREQS = [[0, 'Une seule fois'], [1, 'Tous les jours'], [7, 'Toutes les semaines'], [14, 'Toutes les 2 semaines'], [30, 'Tous les mois'], [90, 'Tous les 3 mois'], [180, 'Tous les 6 mois'], [365, 'Tous les ans']];
 const freqLbl = f => { if (!f) return 'Une seule fois'; const k = FREQS.find(x => x[0] === f); return k ? k[1] : `Tous les ${f} jours`; };
 const freqTxt = t => t.jour_mois ? `Le ${t.jour_mois === 1 ? '1er' : t.jour_mois} de chaque mois` : freqLbl(t.frequence_jours);
@@ -98,6 +104,8 @@ const avatar = c => { const p = c && mainPhoto(c), u = p && url(thumb(p.chemin))
 /* ---------- calculs ---------- */
 const chatNom = id => (C.find(c => c.id === id) || {}).nom || '—';
 const sujet = t => t.chat_id ? chatNom(t.chat_id) : 'Maison';
+const I_STETH = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 3v6a4 4 0 008 0V3"/><path d="M10 13v2a5 5 0 0010 0v-2"/><circle cx="20" cy="11" r="2"/></svg>';
+const I_PILL = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-40 12 12)"/><path d="M9.5 9l5 6"/></svg>';
 const I_HOME = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3c3 4 6 7.5 6 11a6 6 0 01-12 0c0-3.5 3-7 6-11z"/><path d="M9 15a3 3 0 003 3"/></svg>';
 const pesees = id => W.filter(w => w.chat_id === id).sort((a, b) => a.date.localeCompare(b.date));
 const poids = id => { const p = pesees(id); return p.length ? p[p.length - 1] : null; };
@@ -163,16 +171,18 @@ function renderChats() {
 }
 
 function trItem(t, withChat = true) {
-  const c = C.find(x => x.id === t.chat_id), e = etat(t), maison = !t.chat_id;
-  const when = t.prochaine_date ? `<div class="when ${e === 'late' || e === 'today' ? 'late' : e === 'soon' ? 'soon' : ''}">${esc(relDay(t.prochaine_date))}</div>` : '';
-  const btn = t.actif ? `<button class="btn sm ${e === 'late' || e === 'today' ? 'ok' : ''}" data-fait="${t.id}">Fait</button>` : '';
-  return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av">${maison ? I_HOME : avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES[t.type])}</span>`}
+  const c = C.find(x => x.id === t.chat_id), e = etat(t), maison = !t.chat_id, rdv = isRdv(t);
+  const quand = !t.prochaine_date ? '' : rdv ? (e === 'late' ? 'Passé — à compléter' : `${daysBetween(today(), t.prochaine_date) <= 1 ? relDay(t.prochaine_date) : fmtJour(t.prochaine_date)}${t.heure ? ' · ' + fmtHeure(t.heure) : ''}`) : relDay(t.prochaine_date);
+  const when = quand ? `<div class="when ${e === 'late' || e === 'today' ? 'late' : e === 'soon' ? 'soon' : ''}">${esc(quand)}</div>` : '';
+  const btn = !t.actif ? '' : rdv ? (e === 'late' || e === 'today' ? `<button class="btn sm ok" data-fait="${t.id}">Bilan</button>` : '') : `<button class="btn sm ${e === 'late' || e === 'today' ? 'ok' : ''}" data-fait="${t.id}">Fait</button>`;
+  const sous = rdv ? [t.nom !== MOTIFS[t.motif] ? MOTIFS[t.motif] : null, t.lieu].filter(Boolean).join(' · ') : freqTxt(t);
+  return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av">${maison ? I_HOME : avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span>`}
     <div><div class="t">${withChat && !maison ? esc(c?.nom || '—') + ' · ' : ''}${esc(t.nom)}${t.dose ? ` <span class="s">(${esc(t.dose)})</span>` : ''}</div>
-    <div class="s">${withChat ? `<span class="tag ${t.type}">${esc(TYPES[t.type])}</span> ` : ''}${esc(freqTxt(t))}</div>${when}</div>${btn}</div>`;
+    <div class="s">${withChat ? `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span> ` : ''}${esc(sous)}</div>${when}</div>${btn}</div>`;
 }
 function bindTr(root) {
   root.querySelectorAll('[data-fait]').forEach(b => b.onclick = e => { e.stopPropagation(); faitForm(TR.find(t => t.id === b.dataset.fait)); });
-  root.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => trForm(TR.find(t => t.id === b.dataset.tr)));
+  root.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => editTache(TR.find(t => t.id === b.dataset.tr)));
 }
 
 function renderSoins() {
@@ -188,9 +198,9 @@ function renderSoins() {
   const fini = TR.filter(t => !t.actif).filter(keep).slice(0, 20);
   $('vSoins').innerHTML = `${filtres.length > 2 ? `<div class="seg" role="group" aria-label="Filtrer">${filtres.map(([id, n]) => `<button data-sf="${id}" aria-pressed="${soinFilter === id}">${esc(n)}</button>`).join('')}</div>` : ''}
     ${act.length ? sec('late', 'En retard') + sec('today', "Aujourd'hui") + sec('soon', '7 prochains jours') + sec('later', 'Plus tard') + sec('none', 'Sans date prévue')
-      : `<div class="empty" style="margin-top:14px">${C.length ? 'Rien de prévu.<br>Ajoutez vermifuge, antipuces, vaccins ou entretien de la fontaine avec le bouton <b>Ajouter</b>.' : "Ajoutez d'abord vos chats."}</div>`}
+      : `<div class="empty" style="margin-top:14px">${C.length ? 'Rien de prévu.<br>Ajoutez rendez-vous vétérinaire, vermifuge, antipuces ou entretien de la fontaine avec le bouton <b>Ajouter</b>.' : "Ajoutez d'abord vos chats."}</div>`}
     ${hist.length ? `<div class="group">Derniers soins faits</div><div class="box"><ul class="hist">${hist.map(p => { const t = TR.find(x => x.id === p.traitement_id); const m = membres.find(x => x.user_id === p.fait_par);
-      return `<li><span class="d">${esc(fmtDate(p.date))}</span><span class="x"><b style="color:var(--fg)">${esc(p.chat_id ? chatNom(p.chat_id) : 'Maison')}</b> · ${esc(t ? t.nom : 'Traitement')}${m && m.prenom ? ' · ' + esc(m.prenom) : ''}${p.notes ? ' — ' + esc(p.notes) : ''}</span><button class="iconbtn" data-delp="${p.id}" aria-label="Supprimer">${I_DEL}</button></li>`; }).join('')}</ul></div>` : ''}
+      return `<li><span class="d">${esc(fmtDate(p.date))}</span><span class="x"><b style="color:var(--fg)">${esc(p.chat_id ? chatNom(p.chat_id) : 'Maison')}</b> · ${esc(t ? (isRdv(t) ? 'Véto : ' + t.nom : t.nom) : 'Traitement')}${m && m.prenom ? ' · ' + esc(m.prenom) : ''}${p.notes ? ' — ' + esc(p.notes) : ''}</span><button class="iconbtn" data-delp="${p.id}" aria-label="Supprimer">${I_DEL}</button></li>`; }).join('')}</ul></div>` : ''}
     ${fini.length ? `<details><summary class="group" style="cursor:pointer">Traitements terminés (${fini.length})</summary><div class="list">${fini.map(t => trItem(t)).join('')}</div></details>` : ''}`;
   $('vSoins').querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { soinFilter = b.dataset.sf; renderSoins(); });
   $('vSoins').querySelectorAll('[data-delp]').forEach(b => b.onclick = () => delPrise(b.dataset.delp));
@@ -247,7 +257,7 @@ function renderChat(keepScroll) {
   const p = mainPhoto(c), u = p && (url(p.chemin) || url(thumb(p.chemin))), w = poids(c.id), ps = photosOf(c.id);
   const fact = (k, v) => v ? `<div class="fact"><span>${k}</span><strong>${esc(v)}</strong></div>` : '';
   const tr = trActifs().filter(t => t.chat_id === c.id).sort((a, b) => (a.prochaine_date || '9999').localeCompare(b.prochaine_date || '9999'));
-  const hist = PR.filter(x => x.chat_id === c.id).slice(0, 10);
+  const hist = PR.filter(x => x.chat_id === c.id);
   const notes = [['Santé', c.sante], ['Alimentation', c.alimentation], ['Caractère', c.caractere], ['Notes', c.notes]].filter(x => x[1]);
   openSheet(c.nom, `
     <div class="hero">${u ? `<img src="${esc(u)}" alt="${esc(c.nom)}" data-view="${p.id}">` : ICON_CAT}</div>
@@ -262,11 +272,11 @@ function renderChat(keepScroll) {
       ${fact('Stérilisation', c.date_sterilisation && fmtDate(c.date_sterilisation))}
       ${fact('Vétérinaire', c.veterinaire)}${fact('Assurance', c.assurance)}
     </div>
-    <div class="section-title"><h3>Traitements</h3><button class="btn sm" id="addTr">+ Traitement</button></div>
-    ${tr.length ? `<div class="list">${tr.map(t => trItem(t, false)).join('')}</div>` : '<p class="status">Aucun traitement en cours.</p>'}
-    ${hist.length ? `<div class="box" style="margin-top:10px"><ul class="hist">${hist.map(h => { const t = TR.find(x => x.id === h.traitement_id); return `<li><span class="d">${esc(fmtDate(h.date))}</span><span class="x">${esc(t ? t.nom : '—')}${h.notes ? ' — ' + esc(h.notes) : ''}</span></li>`; }).join('')}</ul></div>` : ''}
-    <div class="section-title"><h3>Poids</h3><button class="btn sm" id="addW">+ Pesée</button></div>
-    ${weightChart(c.id)}
+    <div class="section-title"><h3>Soins et rendez-vous</h3><button class="btn sm" id="addTr">+ Ajouter</button></div>
+    ${tr.length ? `<div class="list">${tr.map(t => trItem(t, false)).join('')}</div>` : '<p class="status">Rien de prévu.</p>'}
+    ${hist.length ? fold('hist', 'Historique des soins', `${plur(hist.length, 'entrée')} · dernier le ${fmtDate(hist[0].date)}`,
+      `<ul class="hist">${hist.map((h, i) => { const t = TR.find(x => x.id === h.traitement_id); return `<li${i >= 3 ? ' class="more"' : ''}><span class="d">${esc(fmtDate(h.date))}</span><span class="x">${esc(t ? (isRdv(t) ? 'Véto : ' + t.nom : t.nom) : '—')}${h.notes ? ' — ' + esc(h.notes) : ''}</span></li>`; }).join('')}</ul>${hist.length > 3 ? moreBtn(hist.length) : ''}`) : ''}
+    ${fold('poids', 'Poids', w ? `${fmtNum(w.poids_kg, 2)} kg · ${fmtDate(w.date)}${tendance(c.id)}` : 'Aucune pesée', weightChart(c.id), `<button class="btn sm" id="addW">+ Pesée</button>`)}
     <div class="section-title"><h3>Photos</h3><label class="btn sm" style="cursor:pointer">+ Photos<input type="file" id="addPh" accept="image/*" multiple hidden></label></div>
     <p class="status" id="upStatus"></p>
     ${ps.length ? `<div class="gallery">${ps.map(x => `<button data-view="${x.id}" aria-label="Photo du ${esc(fmtDate(x.date))}">${url(thumb(x.chemin)) ? `<img src="${esc(url(thumb(x.chemin)))}" alt="" loading="lazy">` : ''}${x.id === (p && p.id) ? '<span class="star">★</span>' : ''}</button>`).join('')}</div>` : '<p class="status">Pas encore de photo.</p>'}
@@ -274,14 +284,24 @@ function renderChat(keepScroll) {
   `, { kind: 'chat', actions: `<button class="btn sm" id="editChat">${I_EDIT}<span>Modifier</span></button>` });
   const pn = $('sheet').querySelector('.panel'); if (sc) pn.scrollTop = sc;
   $('editChat').onclick = () => chatForm(c);
-  $('addTr').onclick = () => trForm(null, c.id, backToChat(c.id));
-  $('addW').onclick = () => peseeForm(c.id);
+  $('addTr').onclick = () => ajoutSoin(c.id, backToChat(c.id));
+  pn.querySelectorAll('details.fold').forEach(d => d.ontoggle = () => { folds[d.dataset.k] = d.open; });
+  pn.querySelectorAll('[data-more]').forEach(b => b.onclick = () => { b.closest('.fold-b').classList.add('all'); b.remove(); });
+  $('addW').onclick = e => { e.preventDefault(); e.stopPropagation(); peseeForm(c.id); };
   $('addPh').onchange = e => { if (e.target.files.length) uploadPhotos(c.id, e.target.files); };
   pn.querySelectorAll('[data-view]').forEach(b => b.onclick = () => openViewer(b.dataset.view));
   pn.querySelectorAll('[data-delw]').forEach(b => b.onclick = () => delPesee(b.dataset.delw));
   bindTr(pn);
-  pn.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => trForm(TR.find(t => t.id === b.dataset.tr), c.id, backToChat(c.id)));
+  pn.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => editTache(TR.find(t => t.id === b.dataset.tr), c.id, backToChat(c.id)));
   pn.querySelectorAll('[data-fait]').forEach(b => b.onclick = e => { e.stopPropagation(); faitForm(TR.find(t => t.id === b.dataset.fait), backToChat(c.id)); });
+}
+const folds = {};
+const fold = (k, titre, resume, corps, action = '') => `<details class="fold" data-k="${k}"${folds[k] ? ' open' : ''}><summary><span class="ft">${titre}</span><span class="fr">${esc(resume)}</span>${action}<span class="chev" aria-hidden="true"></span></summary><div class="fold-b">${corps}</div></details>`;
+const moreBtn = n => `<button type="button" class="linkbtn" data-more>Tout afficher (${n})</button>`;
+function tendance(id) {
+  const p = pesees(id); if (p.length < 2) return '';
+  const d = +p[p.length - 1].poids_kg - +p[p.length - 2].poids_kg;
+  return Math.abs(d) < 0.05 ? ' · stable' : ` · ${d > 0 ? '+' : '−'}${fmtNum(Math.abs(d), 2)} kg`;
 }
 function weightChart(id) {
   const p = pesees(id); if (!p.length) return '<p class="status">Aucune pesée.</p>';
@@ -296,7 +316,8 @@ function weightChart(id) {
       ${p.map(x => `<circle cx="${X(x.date).toFixed(1)}" cy="${Y(+x.poids_kg).toFixed(1)}" r="4" fill="var(--acc)"/>`).join('')}</svg>
       <div class="status" style="display:flex;justify-content:space-between"><span>${esc(fmtDate(p[0].date))}</span><span>${fmtNum(Math.min(...vs), 2)}–${fmtNum(Math.max(...vs), 2)} kg</span><span>${esc(fmtDate(p[p.length - 1].date))}</span></div>`;
   }
-  return `<div class="chart">${svg}<ul class="hist">${p.slice().reverse().slice(0, 6).map(x => `<li><span class="d">${esc(fmtDate(x.date))}</span><span class="x"><b style="color:var(--fg)">${fmtNum(x.poids_kg, 2)} kg</b></span><button class="iconbtn" data-delw="${x.id}" aria-label="Supprimer la pesée">${I_DEL}</button></li>`).join('')}</ul></div>`;
+  const rev = p.slice().reverse();
+  return `<div class="chart">${svg}<ul class="hist">${rev.map((x, i) => `<li${i >= 3 ? ' class="more"' : ''}><span class="d">${esc(fmtDate(x.date))}</span><span class="x"><b style="color:var(--fg)">${fmtNum(x.poids_kg, 2)} kg</b></span><button class="iconbtn" data-delw="${x.id}" aria-label="Supprimer la pesée">${I_DEL}</button></li>`).join('')}</ul>${rev.length > 3 ? moreBtn(rev.length) : ''}</div>`;
 }
 
 /* ---------- formulaires : chat ---------- */
@@ -420,28 +441,86 @@ function trForm(t, chatId, back) {
     toast('Enregistré');
   };
 }
+function ajoutSoin(chatId, back) {
+  if (chatId === 'maison') return trForm(null, 'maison', back);
+  openSheet('Ajouter', `<div class="list">
+    <button class="item clic" id="aRdv" style="text-align:left;border:0;font:inherit"><div class="av">${I_STETH}</div><div><div class="t">Rendez-vous vétérinaire</div><div class="s">Contrôle, vaccin, puçage, stérilisation…</div></div><span></span></button>
+    <button class="item clic" id="aTr" style="text-align:left;border:0;font:inherit"><div class="av">${I_PILL}</div><div><div class="t">Traitement ou entretien</div><div class="s">Vermifuge, antipuces, médicament, fontaine…</div></div><span></span></button></div>`, { back });
+  $('aRdv').onclick = () => rdvForm(null, chatId, back);
+  $('aTr').onclick = () => trForm(null, chatId, back);
+}
+const editTache = (t, chatId, back) => isRdv(t) ? rdvForm(t, chatId, back) : trForm(t, chatId, back);
 async function delTr(t, back) {
   if (!confirm(`Supprimer « ${t.nom} » et son historique ?`)) return;
   const { error } = await sb.from('traitements').delete().eq('id', t.id); if (error) return fail(error);
   TR = TR.filter(x => x.id !== t.id); PR = PR.filter(x => x.traitement_id !== t.id); saveCache(); render(); if (back) back(); else closeSheet();
 }
+function rdvForm(t, chatId, back) {
+  const n = !t;
+  const vivants = C.filter(c => !c.decede || (t && c.id === t.chat_id));
+  if (!vivants.length) { toast("Ajoutez d'abord un chat"); return; }
+  t = t || { chat_id: (chatId && chatId !== 'maison' && C.some(c => c.id === chatId)) ? chatId : vivants[0].id, type: 'rdv', motif: 'controle', prochaine_date: addDays(today(), 7), heure: '10:00', actif: true };
+  const vetoDe = id => (C.find(c => c.id === id) || {}).veterinaire || '';
+  openSheet(n ? 'Rendez-vous vétérinaire' : (t.nom || 'Rendez-vous'), `<form class="f" id="fr">
+    <div class="row2"><label class="field"><span>Chat</span><select id="r_chat">${vivants.map(c => `<option value="${c.id}"${c.id === t.chat_id ? ' selected' : ''}>${esc(c.nom)}</option>`).join('')}</select></label>
+      <label class="field"><span>Motif</span><select id="r_motif">${Object.entries(MOTIFS).map(([k, l]) => `<option value="${k}"${t.motif === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
+    <div class="row2"><label class="field"><span>Date</span><input type="date" id="r_d" required value="${esc(t.prochaine_date)}"></label>
+      <label class="field"><span>Heure</span><input type="time" id="r_h" step="300" value="${esc((t.heure || '').slice(0, 5))}"></label></div>
+    <label class="field"><span>Vétérinaire / lieu</span><input id="r_lieu" value="${esc(n ? vetoDe(t.chat_id) : t.lieu)}" placeholder="Ex. Clinique vétérinaire d'Illkirch"></label>
+    <label class="field"><span>Précisions</span><input id="r_nom" value="${esc(n ? '' : t.nom === MOTIFS[t.motif] ? '' : t.nom)}" placeholder="Ex. rappel typhus, boiterie patte arrière…"></label>
+    <label class="field"><span>À ne pas oublier</span><textarea id="r_notes" placeholder="Carnet de santé, à jeun, questions à poser…">${esc(t.notes)}</textarea><small>Rappel la veille et le jour même, à l'heure réglée pour le foyer.</small></label>
+    <p class="err" id="r_err"></p>
+    <div class="foot">${n ? '' : `<button type="button" class="btn danger" id="r_del">${I_DEL}Supprimer</button>`}<span class="spacer"></span>
+      ${!n && t.actif ? '<button type="button" class="btn ok" id="r_fait">Bilan du RDV</button>' : ''}<button class="btn pri" type="submit">Enregistrer</button></div>
+  </form>`, { back });
+  $('r_chat').onchange = () => { if (n && !$('r_lieu').value.trim()) $('r_lieu').value = vetoDe($('r_chat').value); };
+  if (!n) { $('r_del').onclick = () => delTr(t, back); const f = $('r_fait'); if (f) f.onclick = () => faitForm(t, back); }
+  $('fr').onsubmit = async e => {
+    e.preventDefault();
+    const motif = $('r_motif').value;
+    const row = { chat_id: $('r_chat').value, type: 'rdv', motif, nom: val('r_nom') || MOTIFS[motif], prochaine_date: $('r_d').value, heure: $('r_h').value || null,
+      lieu: val('r_lieu'), notes: val('r_notes'), frequence_jours: null, jour_mois: null, produit_id: null, derniere_notif: null };
+    const r = n ? await sb.from('traitements').insert({ ...row, foyer_id: foyer.id }).select().single() : await sb.from('traitements').update(row).eq('id', t.id).select().single();
+    if (r.error) { $('r_err').textContent = r.error.message; return; }
+    TR = TR.filter(x => x.id !== r.data.id).concat(r.data); saveCache(); render();
+    if (back) back(); else closeSheet();
+    toast('Rendez-vous enregistré');
+  };
+}
+
 function faitForm(t, back) {
   if (!t) return;
   const prod = t.produit_id && PD.find(p => p.id === t.produit_id);
+  const rdv = isRdv(t), chat = C.find(c => c.id === t.chat_id);
   openSheet(t.chat_id ? `${chatNom(t.chat_id)} · ${t.nom}` : t.nom, `<form class="f" id="fp">
-    <label class="field"><span>Fait le</span><input type="date" id="p_d" value="${today()}" max="${today()}" required></label>
-    <label class="field"><span>Remarque</span><input id="p_n" placeholder="Facultatif"></label>
+    <label class="field"><span>${rdv ? 'Date du rendez-vous' : 'Fait le'}</span><input type="date" id="p_d" value="${rdv && t.prochaine_date && t.prochaine_date <= today() ? t.prochaine_date : today()}" max="${today()}" required></label>
+    ${rdv ? `<label class="field"><span>Compte rendu</span><textarea id="p_n" placeholder="Ce qu'a dit le vétérinaire, traitement prescrit, prochain contrôle…"></textarea></label>
+    <div class="row2"><label class="field"><span>Poids mesuré (kg)</span><input id="p_w" type="number" step="0.01" min="0.1" max="25" inputmode="decimal" placeholder="Facultatif"></label>
+      <label class="field"><span>Coût (€)</span><input id="p_eur" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Facultatif"></label></div>
+    ${t.motif === 'puce' ? `<label class="field"><span>N° de puce</span><input id="p_puce" inputmode="numeric" value="${esc(chat && chat.puce)}"><small>Enregistré dans la fiche de ${esc(chat ? chat.nom : 'ce chat')}.</small></label>` : ''}
+    ${t.motif === 'sterilisation' ? `<label class="check"><input type="checkbox" id="p_ster" checked>Marquer ${esc(chat ? chat.nom : 'ce chat')} comme stérilisé(e) dans sa fiche</label>` : ''}`
+    : '<label class="field"><span>Remarque</span><input id="p_n" placeholder="Facultatif"></label>'}
     <p class="status" id="p_info"></p><p class="err" id="p_err"></p>
     <div class="foot"><button class="btn ok" type="submit">Valider</button></div></form>`, { back });
   const info = () => { const nx = nextDate(t, $('p_d').value || today());
-    $('p_info').textContent = (nx ? `Prochaine fois : ${fmtDate(nx)}` : 'Ponctuel : il sera marqué terminé.') + (prod ? ` · 1 ${UNITE1[prod.unite]} retiré de « ${prod.nom} » (reste ${fmtNum(Math.max(0, stockEst(prod) - 1), 1)}).` : ''); };
+    $('p_info').textContent = rdv ? 'Le rendez-vous passera dans l\'historique du chat.' : (nx ? `Prochaine fois : ${fmtDate(nx)}` : 'Ponctuel : il sera marqué terminé.') + (prod ? ` · 1 ${UNITE1[prod.unite]} retiré de « ${prod.nom} » (reste ${fmtNum(Math.max(0, stockEst(prod) - 1), 1)}).` : ''); };
   $('p_d').oninput = info; info();
   $('fp').onsubmit = async e => {
     e.preventDefault();
     const d = $('p_d').value;
-    const r = await sb.from('prises').insert({ foyer_id: foyer.id, traitement_id: t.id, chat_id: t.chat_id, date: d, fait_par: me.id, notes: val('p_n') }).select().single();
+    const eur = rdv && parseFloat(String($('p_eur').value).replace(',', '.'));
+    const note = [val('p_n'), eur > 0 ? `${fmtNum(eur, 2)} €` : null].filter(Boolean).join(' · ') || null;
+    const r = await sb.from('prises').insert({ foyer_id: foyer.id, traitement_id: t.id, chat_id: t.chat_id, date: d, fait_par: me.id, notes: note }).select().single();
     if (r.error) { $('p_err').textContent = r.error.message; return; }
-    const nx = nextDate(t, d);
+    if (rdv && chat) {
+      const pw = parseFloat(String($('p_w').value).replace(',', '.'));
+      if (pw > 0) { const w = await sb.from('pesees').insert({ foyer_id: foyer.id, chat_id: chat.id, date: d, poids_kg: pw }).select().single(); if (!w.error) W.push(w.data); }
+      const maj = {};
+      if ($('p_puce') && $('p_puce').value.trim()) maj.puce = $('p_puce').value.trim();
+      if ($('p_ster') && $('p_ster').checked) { maj.sterilise = true; maj.date_sterilisation = d; }
+      if (Object.keys(maj).length) { const s = await sb.from('chats').update(maj).eq('id', chat.id).select().single(); if (!s.error) C = C.map(x => x.id === chat.id ? s.data : x); }
+    }
+    const nx = rdv ? null : nextDate(t, d);
     const upd = nx ? { prochaine_date: nx, derniere_notif: null } : { actif: false, prochaine_date: null, derniere_notif: null };
     const u = await sb.from('traitements').update(upd).eq('id', t.id).select().single();
     if (u.error) { $('p_err').textContent = u.error.message; return; }
@@ -751,6 +830,6 @@ sb.auth.getSession().then(({ data }) => { if (data.session) start(data.session);
 /* ---------- navigation ---------- */
 document.querySelectorAll('.nav button').forEach(b => b.onclick = () => setView(b.dataset.v));
 $('acctBtn').onclick = openSettings;
-$('addBtn').onclick = () => view === 'chats' ? chatForm(null) : view === 'soins' ? trForm(null, soinFilter !== 'tous' ? soinFilter : null) : produitForm(null);
+$('addBtn').onclick = () => view === 'chats' ? chatForm(null) : view === 'soins' ? ajoutSoin(soinFilter !== 'tous' ? soinFilter : null) : produitForm(null);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 })();

@@ -144,6 +144,20 @@ h1,h2,h3{font-family:var(--f-head);font-weight:650;letter-spacing:-.01em;margin:
 .hist li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:center;font-size:15px}
 .hist li .d{font-weight:700;min-width:96px}
 .hist li .x{flex:1;color:var(--muted)}
+.fold{background:var(--paper);border-radius:12px;margin:12px 0;box-shadow:var(--shadow)}
+.fold summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:12px 14px;min-height:52px}
+.fold summary::-webkit-details-marker{display:none}
+.fold .ft{font:650 19px var(--f-head)}
+.fold .fr{flex:1;text-align:right;color:var(--muted);font-size:14px;font-weight:700}
+@media (max-width:480px){.fold summary{flex-wrap:wrap}.fold .fr{order:3;flex-basis:100%;text-align:left;margin-top:-6px}}
+.fold .chev{width:10px;height:10px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin:-4px 4px 0 2px;transition:transform .2s}
+.fold[open] .chev{transform:rotate(-135deg);margin-top:4px}
+.fold-b{padding:0 14px 12px}
+.fold-b .chart{padding:0;background:none}
+.fold-b .hist li.more{display:none}
+.fold-b.all .hist li.more{display:flex}
+.tag.rdv{background:var(--blue-soft);color:var(--blue)}
+.tag.entretien{background:var(--ok-soft);color:var(--ok)}
 .iconbtn{border:0;background:transparent;cursor:pointer;padding:6px;border-radius:8px;color:var(--muted);min-width:36px;min-height:36px}
 .iconbtn:hover{background:var(--paper);color:var(--fg)}
 .seg{display:flex;border:1px solid var(--line);border-radius:999px;overflow-x:auto;background:var(--paper);scrollbar-width:none}
