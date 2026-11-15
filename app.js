@@ -133,7 +133,7 @@ async function load() {
   if (err) { console.warn(err.error); if (!C.length) toast('Chargement impossible : ' + err.error.message); return; }
   [C, W, PH, TR, PR, PD, MV, membres] = r.map(x => x.data);
   saveCache();
-  await signAll(C.map(c => thumb(mainPhoto(c)?.chemin)));
+  await signAll(C.map(c => thumb(mainPhoto(c)?.chemin)).concat(PD.map(p => p.photo)));
   render();
   if (openId && sheetKind === 'chat') renderChat(true);
 }
@@ -215,7 +215,8 @@ function renderStocks() {
     const pct = j !== null ? Math.min(100, j / (Math.max(1, p.seuil_jours) * 4) * 100) : Number(p.stock_ref) > 0 ? Math.min(100, est / Number(p.stock_ref) * 100) : 0;
     const lie = tacheLiee(p);
     const consoTxt = lie && !(Number(p.conso_jour) > 0) ? `1 ${UNITE1[p.unite]} · ${freqTxt(lie).toLowerCase()}` : Number(p.conso_jour) > 0 ? (p.unite === 'kg' ? `${fmtNum(p.conso_jour * 1000, 0)} g/jour` : `${fmtNum(p.conso_jour, 2)} ${Number(p.conso_jour) > 1 ? UNITES[p.unite] : UNITE1[p.unite]}/jour`) : 'Conso. non renseignée';
-    return `<div class="stock" data-p="${p.id}"><div class="stock-h"><h3>${esc(p.nom)}</h3><span class="tag">${esc(CATS[p.categorie])}</span></div>
+    return `<div class="stock" data-p="${p.id}"><div class="stock-h"><label class="pimg" aria-label="Photo de ${esc(p.nom)}">${pimg(p)}<input type="file" accept="image/*" data-pimg="${p.id}" hidden></label>
+      <div class="stock-t"><h3>${esc(p.nom)}</h3><span class="tag">${esc(CATS[p.categorie])}</span></div></div>
       <div class="gauge ${lvl}"><i style="width:${pct.toFixed(0)}%"></i></div>
       <div class="stock-n"><span>Reste <b>${esc(qty(est, p.unite))}</b></span>${j !== null ? `<span><b style="color:${lvl ? `var(--${lvl})` : 'inherit'}">${j <= 0 ? 'Épuisé' : plur(j, 'jour')}</b>${j > 0 ? ` · jusqu'au ${esc(fmtDate(addDays(today(), j)))}` : ''}</span>` : ''}<span>${esc(consoTxt)}</span></div>
       <div class="acts"><button class="btn sm pri" data-achat="${p.id}">+ Achat</button><button class="btn sm" data-inv="${p.id}">Inventaire</button><span style="flex:1"></span><button class="iconbtn" data-editp="${p.id}" aria-label="Modifier">${I_EDIT}</button></div></div>`;
@@ -226,6 +227,7 @@ function renderStocks() {
       return `<li><span class="d">${esc(fmtDate(m.date))}</span><span class="x"><b style="color:var(--fg)">${esc(p ? p.nom : '—')}</b> · ${esc(p ? qty(m.quantite, p.unite) : m.quantite)}${m.prix_eur ? ' · ' + fmtNum(m.prix_eur, 2) + ' €' : ''}</span></li>`; }).join('')}</ul></div>` : ''}
     ${off.length ? `<details><summary class="group" style="cursor:pointer">Produits archivés (${off.length})</summary><div class="list">${off.map(card).join('')}</div></details>` : ''}`
     : `<div class="empty">Aucun produit suivi.<br>Ajoutez croquettes et pâtée avec le bouton <b>Produit</b> : stock actuel et consommation par jour suffisent pour prévoir la rupture.</div>`;
+  $('vStocks').querySelectorAll('[data-pimg]').forEach(i => i.onchange = () => { if (i.files[0]) setPhotoProduit(PD.find(p => p.id === i.dataset.pimg), i.files[0]); });
   $('vStocks').querySelectorAll('[data-achat]').forEach(b => b.onclick = () => achatForm(PD.find(p => p.id === b.dataset.achat)));
   $('vStocks').querySelectorAll('[data-inv]').forEach(b => b.onclick = () => invForm(PD.find(p => p.id === b.dataset.inv)));
   $('vStocks').querySelectorAll('[data-editp]').forEach(b => b.onclick = () => produitForm(PD.find(p => p.id === b.dataset.editp)));
@@ -541,10 +543,37 @@ async function delPrise(id) {
 }
 
 /* ---------- stocks ---------- */
+const CAT_EMOJI = { croquettes: '🥣', patee: '🥫', friandises: '🐟', litiere: '🪣', filtres: '💧', autre: '📦' };
+const pimg = p => p.photo && url(p.photo) ? `<img src="${esc(url(p.photo))}" alt="" loading="lazy">` : `<span class="pemo" aria-hidden="true">${CAT_EMOJI[p.categorie] || '📦'}</span>`;
+async function setPhotoProduit(p, file, silent) {
+  if (!p) return;
+  try {
+    if (!silent) toast('Envoi de la photo…', 10000);
+    const path = `${foyer.id}/produits/${p.id}-${uuid().slice(0, 8)}.jpg`, st = sb.storage.from(BUCKET);
+    const up = await st.upload(path, await toJpeg(file, 480, .8), { contentType: 'image/jpeg', upsert: true }); if (up.error) throw up.error;
+    const r = await sb.from('produits').update({ photo: path }).eq('id', p.id).select().single();
+    if (r.error) { await st.remove([path]); throw r.error; }
+    if (p.photo) st.remove([p.photo]);
+    await signAll([path]);
+    PD = PD.map(x => x.id === p.id ? r.data : x); saveCache(); render();
+    if (!silent) toast('Photo enregistrée');
+  } catch (e) { fail(e); }
+}
+async function delPhotoProduit(p) {
+  const r = await sb.from('produits').update({ photo: null }).eq('id', p.id).select().single(); if (r.error) return fail(r.error);
+  if (p.photo) await sb.storage.from(BUCKET).remove([p.photo]);
+  PD = PD.map(x => x.id === p.id ? r.data : x); saveCache(); render();
+}
+
 function produitForm(p) {
   const n = !p; p = p || { categorie: 'croquettes', unite: 'kg', seuil_jours: 7, conso_jour: 0, stock_ref: 0, actif: true };
   const cj = u => u === 'kg' ? Math.round(Number(p.conso_jour) * 1000) : Number(p.conso_jour);
+  let photoFile = null;
   openSheet(n ? 'Nouveau produit' : p.nom, `<form class="f" id="fd">
+    <div class="pform"><label class="pimg big" aria-label="Choisir une photo"><span id="d_prev">${pimg(p)}</span><input type="file" accept="image/*" id="d_photo" hidden></label>
+      <div><label class="btn sm" for="d_photo" style="cursor:pointer">${p.photo ? 'Changer la photo' : 'Ajouter une photo'}</label>
+      ${p.photo ? '<button type="button" class="linkbtn" id="d_nophoto" style="display:block;margin-top:6px;color:var(--red)">Retirer la photo</button>' : ''}
+      <small class="status" style="display:block;margin-top:6px">Photo du paquet ou de l'étiquette, pour le reconnaître en magasin.</small></div></div>
     <label class="field"><span>Nom *</span><input id="d_nom" required value="${esc(p.nom)}" placeholder="Ex. Croquettes Royal Canin Indoor"></label>
     <div class="row2"><label class="field"><span>Catégorie</span><select id="d_cat">${Object.entries(CATS).map(([k, l]) => `<option value="${k}"${p.categorie === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span>Compté en</span><select id="d_un">${['kg', 'sachet', 'boite', 'unite'].map(k => `<option value="${k}"${p.unite === k ? ' selected' : ''}>${UNITES[k]}</option>`).join('')}</select></label></div>
@@ -561,11 +590,15 @@ function produitForm(p) {
     $('d_cjL').textContent = u === 'kg' ? 'Consommation par jour (g)' : `Consommation par jour (${UNITES[u]})`;
     $('d_cjH').textContent = u === 'kg' ? 'Total pour tous les chats, ex. 3 chats × 50 g = 150 g' : 'Ex. 3 chats × 1 sachet = 3, ou 1,5 boîte'; };
   $('d_un').onchange = lab; lab();
+  $('d_photo').onchange = () => { const f = $('d_photo').files[0]; if (!f) return; photoFile = f;
+    $('d_prev').innerHTML = `<img src="${URL.createObjectURL(f)}" alt="">`; };
+  if ($('d_nophoto')) $('d_nophoto').onclick = async () => { if (!confirm('Retirer la photo de ce produit ?')) return; await delPhotoProduit(p); produitForm(PD.find(x => x.id === p.id)); };
   $('d_cat').onchange = () => { if ($('d_cat').value !== 'filtres') return; $('d_un').value = 'unite'; lab();
     $('d_cjH').textContent = "Laissez vide : liez plutôt ce produit à la tâche d'entretien (Soins → la tâche → « Consomme du stock »).";
     if (n) $('d_seuil').value = 40; };
   if (!n) $('d_del').onclick = async () => { if (!confirm(`Supprimer « ${p.nom} » et ses achats ?`)) return;
     const { error } = await sb.from('produits').delete().eq('id', p.id); if (error) return fail(error);
+    if (p.photo) sb.storage.from(BUCKET).remove([p.photo]);
     PD = PD.filter(x => x.id !== p.id); MV = MV.filter(x => x.produit_id !== p.id); saveCache(); closeSheet(); render(); };
   $('fd').onsubmit = async e => {
     e.preventDefault();
@@ -575,7 +608,9 @@ function produitForm(p) {
     if (!n) row.actif = $('d_act').checked;
     const r = n ? await sb.from('produits').insert({ ...row, foyer_id: foyer.id }).select().single() : await sb.from('produits').update(row).eq('id', p.id).select().single();
     if (r.error) { $('d_err').textContent = r.error.message; return; }
-    PD = PD.filter(x => x.id !== r.data.id).concat(r.data); saveCache(); closeSheet(); render(); toast('Produit enregistré');
+    PD = PD.filter(x => x.id !== r.data.id).concat(r.data); saveCache(); closeSheet(); render();
+    if (photoFile) await setPhotoProduit(r.data, photoFile, true);
+    toast('Produit enregistré');
   };
 }
 function achatForm(p) {
