@@ -187,7 +187,7 @@ function renderChats() {
       <div class="pass-top"><span class="pt">Passeport félin</span><span class="pn">N° ${num}</span></div>
       ${late ? `<span class="pass-alert red">${plur(late, 'soin')} à faire</span>` : soon ? `<span class="pass-alert">Soin cette semaine</span>` : ''}
       <div class="pass-body">
-        <div class="pass-l"><div class="pass-photo">${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : ICON_CAT}</div>${tampon(c, i)}</div>
+        <div class="pass-l"><div class="pass-photo">${u ? `<img src="${esc(u)}" alt="" data-cad='${esc(JSON.stringify(cadOf(c, p)))}'>` : ICON_CAT}</div>${tampon(c, i)}</div>
         <dl class="pass-f">
           <div class="full"><dt>Nom / Name</dt><dd class="nm">${esc(c.nom)}</dd></div>
           ${f('Sexe', c.sexe ? (c.sexe === 'femelle' ? 'F' : 'M') : '')}
@@ -204,6 +204,66 @@ function renderChats() {
     </button>`;
   }).join('')}</div>`;
   $('vChats').querySelectorAll('.pass').forEach(b => b.onclick = () => openChat(b.dataset.id));
+  cadrer($('vChats'));
+}
+window.addEventListener('resize', () => { if (view === 'chats') cadrer($('vChats')); });
+
+/* ---------- cadrage de la photo du passeport ---------- */
+const DEF_CAD = { cx: .5, cy: .42, z: 1 };   // par défaut : un peu au-dessus du centre, là où est souvent la tête
+const cadOf = (c, p) => (c.cadrage && p && c.cadrage.photo === p.id) ? c.cadrage : DEF_CAD;
+function geo(img, cad) {
+  const box = img.parentElement, W = box.clientWidth, H = box.clientHeight, w = img.naturalWidth, h = img.naturalHeight;
+  if (!W || !w) return null;
+  const s = Math.max(W / w, H / h) * cad.z, dw = w * s, dh = h * s;
+  return { W, H, dw, dh };
+}
+function clampCad(cad, g) {
+  const hx = g.W / 2 / g.dw, hy = g.H / 2 / g.dh;
+  cad.cx = Math.min(1 - hx, Math.max(hx, cad.cx)); cad.cy = Math.min(1 - hy, Math.max(hy, cad.cy));
+  return cad;
+}
+function placeImg(img, cad) {
+  const g = geo(img, cad); if (!g) return;
+  clampCad(cad, g);
+  Object.assign(img.style, { inset: 'auto', maxWidth: 'none', objectFit: 'fill', width: g.dw + 'px', height: g.dh + 'px',
+    left: (g.W / 2 - cad.cx * g.dw) + 'px', top: (g.H / 2 - cad.cy * g.dh) + 'px' });
+}
+function cadrer(root) {
+  root.querySelectorAll('img[data-cad]').forEach(img => {
+    const go = () => { try { placeImg(img, JSON.parse(img.dataset.cad)); } catch {} };
+    if (img.complete && img.naturalWidth) go(); else img.addEventListener('load', go, { once: true });
+  });
+}
+async function cadreForm(c) {
+  const p = mainPhoto(c); if (!p) { toast("Ajoutez d'abord une photo"); return; }
+  await signAll([p.chemin]);
+  const cad = { ...cadOf(c, p) };
+  openSheet('Photo du passeport', `
+    <p class="status" style="margin:0 0 12px">Faites glisser la photo pour centrer la tête, et zoomez avec deux doigts ou le curseur.</p>
+    <div class="cad-wrap"><div class="cad-frame" id="cadF"><img id="cadI" src="${esc(url(p.chemin) || url(thumb(p.chemin)))}" alt="" draggable="false"><div class="cad-guide" aria-hidden="true"></div></div></div>
+    <label class="field" style="margin-top:14px"><span>Zoom</span><input type="range" id="cadZ" min="1" max="3.5" step="0.01" value="${cad.z}"></label>
+    <div class="foot"><button type="button" class="btn" id="cadR">Recentrer</button><span class="spacer"></span><button type="button" class="btn pri" id="cadS">Enregistrer</button></div>`, { back: backToChat(c.id) });
+  const img = $('cadI'), frame = $('cadF'), z = $('cadZ');
+  const draw = () => placeImg(img, cad);
+  if (img.complete && img.naturalWidth) draw(); else img.onload = draw;
+  z.oninput = () => { cad.z = +z.value; draw(); };
+  const pts = new Map(); let last = null, pinch = null;
+  frame.onpointerdown = e => { frame.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); last = { x: e.clientX, y: e.clientY };
+    if (pts.size === 2) { const [a1, b1] = [...pts.values()]; pinch = { d: Math.hypot(a1.x - b1.x, a1.y - b1.y), z: cad.z }; } };
+  frame.onpointermove = e => {
+    if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = geo(img, cad); if (!g) return;
+    if (pts.size >= 2 && pinch) { const [a1, b1] = [...pts.values()]; cad.z = Math.min(3.5, Math.max(1, pinch.z * Math.hypot(a1.x - b1.x, a1.y - b1.y) / pinch.d)); z.value = cad.z; draw(); return; }
+    cad.cx -= (e.clientX - last.x) / g.dw; cad.cy -= (e.clientY - last.y) / g.dh; last = { x: e.clientX, y: e.clientY }; draw();
+  };
+  frame.onpointerup = frame.onpointercancel = e => { pts.delete(e.pointerId); pinch = null; const r = [...pts.values()][0]; if (r) last = { ...r }; };
+  frame.onwheel = e => { e.preventDefault(); cad.z = Math.min(3.5, Math.max(1, cad.z * (e.deltaY < 0 ? 1.06 : 1 / 1.06))); z.value = cad.z; draw(); };
+  $('cadR').onclick = () => { Object.assign(cad, DEF_CAD); z.value = cad.z; draw(); };
+  $('cadS').onclick = async () => {
+    const v = { photo: p.id, cx: +cad.cx.toFixed(4), cy: +cad.cy.toFixed(4), z: +cad.z.toFixed(3) };
+    const { error } = await sb.from('chats').update({ cadrage: v }).eq('id', c.id); if (error) return fail(error);
+    C = C.map(x => x.id === c.id ? { ...x, cadrage: v } : x); saveCache(); render(); openChat(c.id); toast('Cadrage enregistré');
+  };
 }
 
 function trItem(t, withChat = true) {
@@ -299,6 +359,7 @@ function renderChat(keepScroll) {
   const notes = [['Santé', c.sante], ['Alimentation', c.alimentation], ['Caractère', c.caractere], ['Notes', c.notes]].filter(x => x[1]);
   openSheet(c.nom, `
     <div class="hero">${u ? `<img src="${esc(u)}" alt="${esc(c.nom)}" data-view="${p.id}">` : ICON_CAT}</div>
+    ${u ? '<div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn sm" id="cadBtn">Cadrer la photo du passeport</button></div>' : ''}
     <div class="facts">
       ${fact('Âge', [age(c.date_naissance), c.date_naissance && `${c.naissance_estimee ? 'vers ' : 'né' + (c.sexe === 'femelle' ? 'e' : '') + ' le '}${fmtDate(c.date_naissance)}`].filter(Boolean).join(' · '))}
       ${fact('Poids', w && `${fmtNum(w.poids_kg, 2)} kg (${fmtDate(w.date)})`)}
@@ -322,6 +383,7 @@ function renderChat(keepScroll) {
   `, { kind: 'chat', actions: `<button class="btn sm" id="editChat">${I_EDIT}<span>Modifier</span></button>` });
   const pn = $('sheet').querySelector('.panel'); if (sc) pn.scrollTop = sc;
   $('editChat').onclick = () => chatForm(c);
+  if ($('cadBtn')) $('cadBtn').onclick = () => cadreForm(c);
   $('addTr').onclick = () => ajoutSoin(c.id, backToChat(c.id));
   pn.querySelectorAll('details.fold').forEach(d => d.ontoggle = () => { folds[d.dataset.k] = d.open; });
   pn.querySelectorAll('[data-more]').forEach(b => b.onclick = () => { b.closest('.fold-b').classList.add('all'); b.remove(); });

@@ -102,6 +102,12 @@ h1,h2,h3{font-family:var(--f-head);font-weight:650;letter-spacing:-.01em;margin:
   white-space:nowrap;overflow:hidden;border-top:1px dashed rgba(110,80,40,.3);background:rgba(255,255,255,.18)}
 .pass-l{display:flex;flex-direction:column;align-items:center}
 .stamp{width:108px;height:108px;margin:-34px 0 -8px 26px;z-index:2;opacity:.82;mix-blend-mode:multiply;pointer-events:none;flex:none}
+.cad-wrap{display:flex;justify-content:center;padding:18px;background:#eadfc8;border-radius:14px}
+.cad-frame{position:relative;width:min(240px,70vw);aspect-ratio:3/4;overflow:hidden;border-radius:8px;background:#d7c39d;touch-action:none;cursor:grab;
+  box-shadow:0 0 0 4px rgba(255,255,255,.6),0 0 0 5px rgba(110,80,40,.3)}
+.cad-frame:active{cursor:grabbing}
+.cad-frame img{position:absolute;user-select:none;-webkit-user-drag:none;pointer-events:none;filter:sepia(.18) saturate(.92) contrast(1.03)}
+.cad-guide{position:absolute;left:18%;right:18%;top:12%;bottom:30%;border:2px dashed rgba(255,255,255,.75);border-radius:50%;pointer-events:none}
 .pass.gone .pass-photo img{filter:grayscale(1) contrast(1.05)}
 .pass.gone{--sand:#e2ddd3;--sand2:#d3ccbe}
 @media (max-width:380px){.pass-body{grid-template-columns:96px 1fr;gap:12px}.pass-photo{width:96px}.stamp{width:92px;height:92px;margin-left:16px}.pass-f dd.nm{font-size:22px}.mrz{font-size:11px;letter-spacing:.08em}}
