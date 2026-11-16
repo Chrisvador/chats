@@ -174,20 +174,14 @@ function tampon(c, i) {
     <g transform="translate(27 17) scale(.46)">${PAW}</g>
     <text x="50" y="66" text-anchor="middle" font-size="7" font-weight="700" letter-spacing=".8" fill="currentColor">${esc(c.date_arrivee ? fmtDate(c.date_arrivee).toUpperCase() : 'VALIDÉ')}</text></g></svg>`;
 }
-function renderChats() {
-  const list = C.filter(c => !c.decede).concat(C.filter(c => c.decede));
-  if (!list.length) { $('vChats').innerHTML = `<div class="empty">${ICON_CAT}<p>Aucun chat pour l'instant.<br>Ajoutez le premier avec le bouton <b>Chat</b>.</p></div>`; return; }
-  $('vChats').innerHTML = `<div class="passes">${list.map((c, i) => {
-    const p = mainPhoto(c), u = p && (url(thumb(p.chemin)) || url(p.chemin)), w = poids(c.id);
-    const t = trActifs().filter(x => x.chat_id === c.id), late = t.filter(x => ['late', 'today'].includes(etat(x))).length, soon = t.filter(x => etat(x) === 'soon').length;
-    const num = c.id.replace(/-/g, '').slice(0, 9).toUpperCase();
-    const nais = c.date_naissance ? (c.naissance_estimee ? 'vers ' : '') + fmtDate(c.date_naissance) : '—';
-    const f = (k, v, cls = '') => `<div class="${cls}"><dt>${k}</dt><dd>${esc(v || '—')}</dd></div>`;
-    const yymmdd = c.date_naissance ? c.date_naissance.slice(2).replace(/-/g, '') : '<<<<<<';
-    const mrz1 = mrzTxt(`P<CHT${c.nom}<<${c.robe || ''}`, 36), mrz2 = mrzTxt(num, 10) + yymmdd + (c.sexe === 'femelle' ? 'F' : c.sexe === 'male' ? 'M' : '<') + mrzTxt(foyer.nom, 19);
-    return `<button class="pass${c.decede ? ' gone' : ''}" data-id="${c.id}" aria-label="Passeport de ${esc(c.nom)}">
-      <div class="pass-top"><span class="pt">Passeport félin</span><span class="pn">N° ${num}</span></div>
-      ${late ? `<span class="pass-alert red">${plur(late, 'soin')} à faire</span>` : soon ? `<span class="pass-alert">Soin cette semaine</span>` : ''}
+const numPass = c => c.id.replace(/-/g, '').slice(0, 9).toUpperCase();
+function passInner(c, i) {
+  const p = mainPhoto(c), u = p && (url(thumb(p.chemin)) || url(p.chemin)), w = poids(c.id), num = numPass(c);
+  const nais = c.date_naissance ? (c.naissance_estimee ? 'vers ' : '') + fmtDate(c.date_naissance) : '—';
+  const f = (k, v, cls = '') => `<div class="${cls}"><dt>${k}</dt><dd>${esc(v || '—')}</dd></div>`;
+  const yymmdd = c.date_naissance ? c.date_naissance.slice(2).replace(/-/g, '') : '<<<<<<';
+  const mrz1 = mrzTxt(`P<CHT${c.nom}<<${c.robe || ''}`, 36), mrz2 = mrzTxt(num, 10) + yymmdd + (c.sexe === 'femelle' ? 'F' : c.sexe === 'male' ? 'M' : '<') + mrzTxt(foyer.nom, 19);
+  return `<div class="pass-top"><span class="pt">Passeport félin</span><span class="pn">N° ${num}</span></div>
       <div class="pass-body">
         <div class="pass-l"><div class="pass-photo">${u ? `<img src="${esc(u)}" alt="" data-cad='${esc(JSON.stringify(cadOf(c, p)))}'>` : ICON_CAT}</div>${tampon(c, i)}</div>
         <dl class="pass-f">
@@ -202,13 +196,136 @@ function renderChats() {
           ${c.puce ? f('Puce', c.puce, 'full') : ''}
         </dl>
       </div>
-      <div class="mrz" aria-hidden="true">${esc(mrz1)}<br>${esc(mrz2)}</div>
+      <div class="mrz" aria-hidden="true">${esc(mrz1)}<br>${esc(mrz2)}</div>`;
+}
+function renderChats() {
+  const list = C.filter(c => !c.decede).concat(C.filter(c => c.decede));
+  if (!list.length) { $('vChats').innerHTML = `<div class="empty">${ICON_CAT}<p>Aucun chat pour l'instant.<br>Ajoutez le premier avec le bouton <b>Chat</b>.</p></div>`; return; }
+  $('vChats').innerHTML = `<div class="passes">${list.map((c, i) => {
+    const t = trActifs().filter(x => x.chat_id === c.id), late = t.filter(x => ['late', 'today'].includes(etat(x))).length, soon = t.filter(x => etat(x) === 'soon').length;
+    return `<button class="pass${c.decede ? ' gone' : ''}" data-id="${c.id}" aria-label="Ouvrir le passeport de ${esc(c.nom)}">
+      ${late ? `<span class="pass-alert red">${plur(late, 'soin')} à faire</span>` : soon ? `<span class="pass-alert">Soin cette semaine</span>` : ''}
+      ${passInner(c, i)}
     </button>`;
   }).join('')}</div>`;
-  $('vChats').querySelectorAll('.pass').forEach(b => b.onclick = () => openChat(b.dataset.id));
+  $('vChats').querySelectorAll('.pass').forEach(b => b.onclick = () => openBook(b.dataset.id));
   cadrer($('vChats'));
 }
 window.addEventListener('resize', () => cadrer(document));
+
+/* ---------- livret : le passeport s'ouvre et se feuillette ---------- */
+const fmtCourt = d => { if (!d) return ''; const [y, m, j] = d.split('-').map(Number); return `${String(j).padStart(2, '0')} ${MOIS[m - 1].replace('.', '').toUpperCase()} ${y}`; };
+function visa(titre, ligne, date, k, sub = '') {
+  const h = hashId(ligne + date + k), ink = INKS[h % INKS.length], rot = (h % 15) - 7, rond = h % 3 === 0;
+  return `<div class="visa${rond ? ' rond' : ''}" style="--ink:${ink};transform:rotate(${rot}deg)"><b>${esc(titre)}</b><span>${esc(ligne)}</span><i>${esc(fmtCourt(date))}</i>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`;
+}
+function bookPages(c, i) {
+  const page = (titre, corps, cls = '') => `<div class="pp ${cls}"><div class="pp-h"><span>Passeport félin</span><span>${titre}</span></div><div class="pp-b">${corps}</div></div>`;
+  const prises = PR.filter(x => x.chat_id === c.id).map(x => ({ ...x, t: TR.find(t => t.id === x.traitement_id) })).filter(x => x.t);
+  const prevus = trActifs().filter(t => t.chat_id === c.id && t.prochaine_date).sort((a, b) => a.prochaine_date.localeCompare(b.prochaine_date));
+  const vide = txt => `<div class="pp-vide"><svg viewBox="0 0 100 100" width="64" height="64" aria-hidden="true">${PAW}</svg><p>${txt}</p></div>`;
+  const prochain = ts => { ts = ts.filter(t => !isRdv(t) || t.prochaine_date >= today());
+    return ts.length ? `<div class="pp-next"><b>À venir</b>${ts.slice(0, 3).map(t => `<span${t.prochaine_date < today() ? ' class="late"' : ''}>${esc(fmtDate(t.prochaine_date))} · ${esc(t.nom)}${t.prochaine_date < today() ? ' — en retard' : ''}</span>`).join('')}</div>` : ''; };
+  const visas = (list, titre, max = 6) => list.length ? `<div class="visas">${list.slice(0, max).map(x => visa(titre(x), x.t.nom, x.date, x.id)).join('')}</div>${list.length > max ? `<p class="pp-more">+ ${list.length - max} autre${list.length - max > 1 ? 's' : ''} dans la fiche</p>` : ''}` : '';
+  const ch = (k, v) => `<div><dt>${k}</dt><dd>${esc(v || '—')}</dd></div>`;
+  const s = ster(c.sexe), w = pesees(c.id);
+
+  // poids : petite courbe
+  let courbe = '';
+  if (w.length > 1) {
+    const vs = w.map(x => +x.poids_kg), lo = Math.min(...vs) - .15, hi = Math.max(...vs) + .15, n = w.length;
+    const pts = w.map((x, k) => `${(6 + k / (n - 1) * 188).toFixed(1)},${(52 - (+x.poids_kg - lo) / (hi - lo) * 44).toFixed(1)}`).join(' ');
+    courbe = `<svg class="pp-courbe" viewBox="0 0 200 58" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="#9a3b2c" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+      <div class="pp-cl"><span>${esc(fmtDate(w[0].date))}</span><span>${fmtNum(Math.min(...vs), 2)}–${fmtNum(Math.max(...vs), 2)} kg</span><span>${esc(fmtDate(w[n - 1].date))}</span></div>`;
+  }
+
+  const vacc = prises.filter(x => x.t.type === 'vaccin' || (isRdv(x.t) && x.t.motif === 'vaccin'));
+  const para = prises.filter(x => ['vermifuge', 'antiparasitaire'].includes(x.t.type));
+  const veto = prises.filter(x => isRdv(x.t));
+  const autres = prises.filter(x => ['medicament', 'soin', 'autre'].includes(x.t.type));
+  const photos = photosOf(c.id).slice(0, 6);
+
+  return [
+    // 1. identité (page de données)
+    `<div class="pp pp-id"><div class="pass${c.decede ? ' gone' : ''}">${passInner(c, i)}</div></div>`,
+    // 2. signalement
+    page('Signalement', `<dl class="pp-f">${ch('Race', c.race)}${ch('Robe', c.robe)}${ch('Yeux', c.yeux)}${ch('Sexe', c.sexe && SEXES[c.sexe])}
+      ${ch(s.adj, c.sterilise ? 'Oui' + (c.date_sterilisation ? ' · ' + fmtDate(c.date_sterilisation) : '') : 'Non')}
+      ${ch('Né(e) le', c.date_naissance && (c.naissance_estimee ? 'vers ' : '') + fmtDate(c.date_naissance))}
+      <div class="full">${'<dt>Identification</dt>'}<dd>${esc(c.puce ? 'Puce ' + c.puce : c.tatouage ? 'Tatouage ' + c.tatouage : 'Non identifié')}${c.puce && c.tatouage ? ' · Tatouage ' + esc(c.tatouage) : ''}</dd></div></dl>
+      <div class="pp-poids"><dt>Poids</dt><dd class="big">${w.length ? fmtNum(w[w.length - 1].poids_kg, 2) + ' kg' : '—'}</dd>${courbe}</div>`),
+    // 3. vaccinations
+    page('Vaccinations', (visas(vacc, x => 'Vacciné') || vide('Aucune vaccination enregistrée.')) + prochain(prevus.filter(t => t.type === 'vaccin' || (isRdv(t) && t.motif === 'vaccin')))),
+    // 4. antiparasitaires
+    page('Antiparasitaires', (visas(para, x => x.t.type === 'vermifuge' ? 'Vermifugé' : 'Antipuces')
+      || vide('Aucun vermifuge ni antipuces enregistré.')) + prochain(prevus.filter(t => ['vermifuge', 'antiparasitaire'].includes(t.type)))),
+    // 5. visites vétérinaires
+    page('Visites vétérinaires', (veto.length ? `<ul class="pp-vis">${veto.slice(0, 5).map(x => `<li><i>${esc(fmtCourt(x.date))}</i><b>${esc(x.t.nom)}</b>${x.t.lieu ? `<span>${esc(x.t.lieu)}</span>` : ''}${x.notes ? `<em>${esc(x.notes)}</em>` : ''}</li>`).join('')}</ul>`
+      : vide('Aucune visite enregistrée.')) + prochain(prevus.filter(isRdv)) + (autres.length ? `<p class="pp-more">${plur(autres.length, 'autre soin')} dans la fiche</p>` : '')),
+    // 6. foyer
+    page('Domicile', `<dl class="pp-f">${ch('Foyer', foyer.nom)}${ch('Arrivé(e) le', c.date_arrivee && fmtDate(c.date_arrivee))}${ch('Provenance', c.provenance)}
+      ${ch('Mode de vie', VIES[c.mode_vie])}${ch('Vétérinaire', c.veterinaire)}${ch('Assurance', c.assurance)}</dl>
+      ${[['Caractère', c.caractere], ['Alimentation', c.alimentation], ['Santé', c.sante]].filter(x => x[1]).map(([k, v]) => `<div class="pp-note"><dt>${k}</dt><p>${esc(v)}</p></div>`).join('')}
+      <div class="pp-sign"><span>Signature du titulaire</span><svg viewBox="0 0 100 100" width="46" height="46" style="color:#3a2c1d;transform:rotate(-14deg)" aria-hidden="true">${PAW}</svg></div>`),
+    // 7. souvenirs
+    page('Souvenirs', photos.length ? `<div class="pp-pol">${photos.map((p, k) => `<figure style="transform:rotate(${(hashId(p.id) % 9) - 4}deg)"><div>${url(thumb(p.chemin)) ? `<img src="${esc(url(thumb(p.chemin)))}" alt="" loading="lazy">` : ''}</div><figcaption>${esc(fmtDate(p.date))}</figcaption></figure>`).join('')}</div>`
+      : vide('Pas encore de photo.')),
+  ];
+}
+const BOOK = { leaves: [], cur: 0, id: null, busy: false };
+async function openBook(id) {
+  const c = C.find(x => x.id === id); if (!c) return;
+  const i = C.filter(x => !x.decede).concat(C.filter(x => x.decede)).findIndex(x => x.id === id);
+  await signAll(photosOf(id).slice(0, 6).map(p => thumb(p.chemin)));
+  const pages = bookPages(c, i), total = pages.length;
+  const verso = k => `<div class="pp pp-verso"><span>${k}</span></div>`;
+  // feuillets : la couverture, puis une page par feuillet (recto = contenu, verso = papier)
+  const cover = `<div class="cover"><div class="cv-in"><span class="cv-top">Passeport félin</span>
+      <svg class="cv-emb" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="50" cy="50" r="38" fill="none" stroke="currentColor" stroke-width="1"/><g transform="translate(19 14) scale(.62)">${PAW}</g></svg>
+      <span class="cv-sub">Cat passport</span><span class="cv-foyer">${esc(foyer.nom)}</span><span class="cv-nom">${esc(c.nom)}</span>
+      <svg class="cv-chip" viewBox="0 0 60 36" aria-hidden="true"><rect x="1" y="1" width="58" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="18" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M1 18h23M36 18h23" stroke="currentColor" stroke-width="2"/></svg></div></div>`;
+  const endpaper = `<div class="pp pp-garde"><p>Ce passeport appartient à</p><b>${esc(c.nom)}</b><p>et au foyer « ${esc(foyer.nom)} »</p></div>`;
+  const backCover = `<div class="cover back"><div class="cv-in"><svg class="cv-emb small" viewBox="0 0 100 100" aria-hidden="true">${PAW}</svg><span class="cv-sub">Fin du passeport</span></div></div>`;
+  const leaves = [[cover, endpaper]].concat(pages.map((p, k) => [p, k === pages.length - 1 ? backCover : verso(k + 2)]));
+  const b = $('book');
+  b.innerHTML = `<div class="bk-bar"><button class="iconbtn bk-x" id="bkX" aria-label="Fermer">${I_CLOSE}</button><span class="bk-t">${esc(c.nom)}</span>
+      <button class="btn sm" id="bkFiche">Fiche complète</button></div>
+    <div class="bk-stage" id="bkS"><div class="bk" id="bk">${leaves.map(([f, r], k) => `<div class="leaf" data-k="${k}"><div class="face front">${f}</div><div class="face back">${r}</div></div>`).join('')}</div></div>
+    <div class="bk-nav"><button class="btn sm" id="bkP" aria-label="Page précédente">‹</button><span id="bkN"></span><button class="btn sm" id="bkNx" aria-label="Page suivante">›</button></div>`;
+  b.hidden = false; document.body.style.overflow = 'hidden';
+  Object.assign(BOOK, { leaves: [...b.querySelectorAll('.leaf')], cur: 0, id, busy: false, total: total + 1 });
+  layoutBook(); cadrer(b);
+  $('bkX').onclick = closeBook;
+  $('bkFiche').onclick = () => { closeBook(); openChat(id); };
+  $('bkP').onclick = () => turn(-1); $('bkNx').onclick = () => turn(1);
+  // gestes : glisser à gauche / droite, ou toucher le bord droit / gauche
+  const st = $('bkS'); let x0 = null, y0 = null;
+  st.onpointerdown = e => { x0 = e.clientX; y0 = e.clientY; };
+  st.onpointerup = e => {
+    if (x0 === null) return; const dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) turn(dx < 0 ? 1 : -1);
+    else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) { const r = $('bk').getBoundingClientRect(); turn(e.clientX > r.left + r.width / 2 || BOOK.cur === 0 ? 1 : -1); }
+  };
+  setTimeout(() => { if (BOOK.id === id && BOOK.cur === 0) turn(1); }, 450);   // le passeport s'ouvre tout seul
+}
+function layoutBook() {
+  const n = BOOK.leaves.length;
+  BOOK.leaves.forEach((l, k) => { const f = k < BOOK.cur; l.classList.toggle('flipped', f); l.style.zIndex = f ? k + 1 : n - k; });
+  $('book').classList.toggle('open', BOOK.cur > 0);
+  $('bkN').textContent = BOOK.cur === 0 ? 'Couverture' : BOOK.cur >= n ? 'Fin' : `${BOOK.cur} / ${n - 1}`;
+  $('bkP').disabled = BOOK.cur === 0; $('bkNx').disabled = BOOK.cur >= n;
+}
+function turn(d) {
+  const n = BOOK.leaves.length, nx = BOOK.cur + d;
+  if (BOOK.busy || nx < 0 || nx > n) return;
+  const l = BOOK.leaves[d > 0 ? BOOK.cur : nx];
+  l.style.zIndex = 500; BOOK.busy = true; BOOK.cur = nx;
+  l.classList.toggle('flipped', d > 0); $('book').classList.toggle('open', BOOK.cur > 0);
+  setTimeout(() => { BOOK.busy = false; layoutBook(); }, 620);
+  $('bkN').textContent = '…';
+}
+function closeBook() { $('book').hidden = true; $('book').innerHTML = ''; BOOK.id = null; document.body.style.overflow = ''; }
+document.addEventListener('keydown', e => { if ($('book').hidden) return; if (e.key === 'ArrowRight') turn(1); else if (e.key === 'ArrowLeft') turn(-1); else if (e.key === 'Escape') closeBook(); });
 
 /* ---------- cadrage de la photo du passeport ---------- */
 // Cadrage v2 : (cx, cy) = position de la tête dans l'image ; chaque cadre place la tête à sa hauteur « ay »
