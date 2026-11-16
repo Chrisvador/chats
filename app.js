@@ -101,7 +101,7 @@ const url = p => (p && urls[p] ? urls[p].u : '');
 const thumb = p => p ? p.replace(/\.jpg$/, '_t.jpg') : '';
 const photosOf = id => PH.filter(p => p.chat_id === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 const mainPhoto = c => { const ps = photosOf(c.id); return ps.find(p => p.id === c.photo_principale) || ps[0] || null; };
-const avatar = c => { const p = c && mainPhoto(c), u = p && url(thumb(p.chemin)); return u ? `<img src="${esc(u)}" alt="">` : esc((c?.nom || '?').slice(0, 1).toUpperCase()); };
+const avatar = c => { const p = c && mainPhoto(c), u = p && url(thumb(p.chemin)); return u ? `<img src="${esc(u)}" alt="" data-ay=".5" data-cad='${esc(JSON.stringify(cadOf(c, p)))}'>` : esc((c?.nom || '?').slice(0, 1).toUpperCase()); };
 
 /* ---------- calculs ---------- */
 const chatNom = id => (C.find(c => c.id === id) || {}).nom || '—';
@@ -208,10 +208,13 @@ function renderChats() {
   $('vChats').querySelectorAll('.pass').forEach(b => b.onclick = () => openChat(b.dataset.id));
   cadrer($('vChats'));
 }
-window.addEventListener('resize', () => { if (view === 'chats') cadrer($('vChats')); });
+window.addEventListener('resize', () => cadrer(document));
 
 /* ---------- cadrage de la photo du passeport ---------- */
-const DEF_CAD = { cx: .5, cy: .42, z: 1 };   // par défaut : un peu au-dessus du centre, là où est souvent la tête
+// Cadrage v2 : (cx, cy) = position de la tête dans l'image ; chaque cadre place la tête à sa hauteur « ay »
+// (passeport et éditeur : 41 % du haut, comme une photo d'identité ; vignette carrée : au centre).
+const DEF_CAD = { cx: .5, cy: .38, z: 1, v: 2 };
+const AY_ID = .41;
 const cadOf = (c, p) => (c.cadrage && p && c.cadrage.photo === p.id) ? c.cadrage : DEF_CAD;
 function geo(img, cad) {
   const box = img.parentElement, W = box.clientWidth, H = box.clientHeight, w = img.naturalWidth, h = img.naturalHeight;
@@ -219,20 +222,21 @@ function geo(img, cad) {
   const s = Math.max(W / w, H / h) * cad.z, dw = w * s, dh = h * s;
   return { W, H, dw, dh };
 }
-function clampCad(cad, g) {
-  const hx = g.W / 2 / g.dw, hy = g.H / 2 / g.dh;
-  cad.cx = Math.min(1 - hx, Math.max(hx, cad.cx)); cad.cy = Math.min(1 - hy, Math.max(hy, cad.cy));
+const ayOf = (cad, ay) => cad.v === 2 ? ay : .5;   // ancien format : point central
+function clampCad(cad, g, ay) {
+  const hx = g.W / 2 / g.dw, top = ay * g.H / g.dh, bot = (1 - ay) * g.H / g.dh;
+  cad.cx = Math.min(1 - hx, Math.max(hx, cad.cx)); cad.cy = Math.min(1 - bot, Math.max(top, cad.cy));
   return cad;
 }
-function placeImg(img, cad) {
+function placeImg(img, cad, ay = AY_ID) {
   const g = geo(img, cad); if (!g) return;
-  clampCad(cad, g);
+  ay = ayOf(cad, ay); clampCad(cad, g, ay);
   Object.assign(img.style, { inset: 'auto', maxWidth: 'none', objectFit: 'fill', width: g.dw + 'px', height: g.dh + 'px',
-    left: (g.W / 2 - cad.cx * g.dw) + 'px', top: (g.H / 2 - cad.cy * g.dh) + 'px' });
+    left: (g.W / 2 - cad.cx * g.dw) + 'px', top: (ay * g.H - cad.cy * g.dh) + 'px' });
 }
 function cadrer(root) {
   root.querySelectorAll('img[data-cad]').forEach(img => {
-    const go = () => { try { placeImg(img, JSON.parse(img.dataset.cad)); } catch {} };
+    const go = () => { try { placeImg(img, JSON.parse(img.dataset.cad), img.dataset.ay ? +img.dataset.ay : AY_ID); } catch {} };
     if (img.complete && img.naturalWidth) go(); else img.addEventListener('load', go, { once: true });
   });
 }
@@ -240,6 +244,7 @@ async function cadreForm(c) {
   const p = mainPhoto(c); if (!p) { toast("Ajoutez d'abord une photo"); return; }
   await signAll([p.chemin]);
   const cad = { ...cadOf(c, p) };
+  if (cad.v !== 2) { cad.cy -= (.5 - AY_ID) * .2; cad.v = 2; }   // conversion approximative d'un ancien cadrage
   openSheet('Photo du passeport', `
     <p class="status" style="margin:0 0 12px">Faites glisser la photo pour centrer la tête, et zoomez avec deux doigts ou le curseur.</p>
     <div class="cad-wrap"><div class="cad-frame" id="cadF"><img id="cadI" src="${esc(url(p.chemin) || url(thumb(p.chemin)))}" alt="" draggable="false"><div class="cad-guide" aria-hidden="true"></div></div></div>
@@ -262,7 +267,7 @@ async function cadreForm(c) {
   frame.onwheel = e => { e.preventDefault(); cad.z = Math.min(3.5, Math.max(1, cad.z * (e.deltaY < 0 ? 1.06 : 1 / 1.06))); z.value = cad.z; draw(); };
   $('cadR').onclick = () => { Object.assign(cad, DEF_CAD); z.value = cad.z; draw(); };
   $('cadS').onclick = async () => {
-    const v = { photo: p.id, cx: +cad.cx.toFixed(4), cy: +cad.cy.toFixed(4), z: +cad.z.toFixed(3) };
+    const v = { photo: p.id, cx: +cad.cx.toFixed(4), cy: +cad.cy.toFixed(4), z: +cad.z.toFixed(3), v: 2 };
     const { error } = await sb.from('chats').update({ cadrage: v }).eq('id', c.id); if (error) return fail(error);
     C = C.map(x => x.id === c.id ? { ...x, cadrage: v } : x); saveCache(); render(); openChat(c.id); toast('Cadrage enregistré');
   };
@@ -274,7 +279,7 @@ function trItem(t, withChat = true) {
   const when = quand ? `<div class="when ${e === 'late' || e === 'today' ? 'late' : e === 'soon' ? 'soon' : ''}">${esc(quand)}</div>` : '';
   const btn = !t.actif ? '' : rdv ? (e === 'late' || e === 'today' ? `<button class="btn sm ok" data-fait="${t.id}">Bilan</button>` : '') : `<button class="btn sm ${e === 'late' || e === 'today' ? 'ok' : ''}" data-fait="${t.id}">Fait</button>`;
   const sous = rdv ? [![MOTIFS[t.motif], 'Castration', 'Stérilisation'].includes(t.nom) ? MOTIFS[t.motif] : null, t.lieu].filter(Boolean).join(' · ') : freqTxt(t);
-  return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av">${maison ? I_HOME : avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span>`}
+  return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av id">${maison ? I_HOME : avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span>`}
     <div><div class="t">${withChat && !maison ? esc(c?.nom || '—') + ' · ' : ''}${esc(t.nom)}${t.dose ? ` <span class="s">(${esc(t.dose)})</span>` : ''}</div>
     <div class="s">${withChat ? `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span> ` : ''}${esc(sous)}</div>${when}</div>${btn}</div>`;
 }
@@ -303,6 +308,7 @@ function renderSoins() {
   $('vSoins').querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { soinFilter = b.dataset.sf; renderSoins(); });
   $('vSoins').querySelectorAll('[data-delp]').forEach(b => b.onclick = () => delPrise(b.dataset.delp));
   bindTr($('vSoins'));
+  cadrer($('vSoins'));
 }
 
 function renderStocks() {
