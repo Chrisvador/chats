@@ -243,11 +243,11 @@ function bookPages(c, i) {
   const para = prises.filter(x => ['vermifuge', 'antiparasitaire'].includes(x.t.type));
   const veto = prises.filter(x => isRdv(x.t));
   const autres = prises.filter(x => ['medicament', 'soin', 'autre'].includes(x.t.type));
-  const photos = photosOf(c.id).slice(0, 6);
+  const photos = photosOf(c.id);
 
   return [
     // 1. identité (page de données)
-    `<div class="pp pp-id"><div class="pass${c.decede ? ' gone' : ''}">${passInner(c, i)}</div></div>`,
+    `<div class="pp pp-id"${mainPhoto(c) ? ` data-ph-id="${mainPhoto(c).id}"` : ''}><div class="pass${c.decede ? ' gone' : ''}">${passInner(c, i)}</div></div>`,
     // 2. signalement
     page('Signalement', `<dl class="pp-f">${ch('Race', c.race)}${ch('Robe', c.robe)}${ch('Yeux', c.yeux)}${ch('Sexe', c.sexe && SEXES[c.sexe])}
       ${ch(s.adj, c.sterilise ? 'Oui' + (c.date_sterilisation ? ' · ' + fmtDate(c.date_sterilisation) : '') : 'Non')}
@@ -268,15 +268,17 @@ function bookPages(c, i) {
       ${[['Caractère', c.caractere], ['Alimentation', c.alimentation], ['Santé', c.sante]].filter(x => x[1]).map(([k, v]) => `<div class="pp-note"><dt>${k}</dt><p>${esc(v)}</p></div>`).join('')}
       <div class="pp-sign"><span>Signature du titulaire</span><svg viewBox="0 0 100 100" width="46" height="46" style="color:#3a2c1d;transform:rotate(-14deg)" aria-hidden="true">${PAW}</svg></div>`),
     // 7. souvenirs
-    page('Souvenirs', photos.length ? `<div class="pp-pol">${photos.map((p, k) => `<figure style="transform:rotate(${(hashId(p.id) % 9) - 4}deg)"><div>${url(thumb(p.chemin)) ? `<img src="${esc(url(thumb(p.chemin)))}" alt="" loading="lazy">` : ''}</div><figcaption>${esc(fmtDate(p.date))}</figcaption></figure>`).join('')}</div>`
-      : vide('Pas encore de photo.')),
+    // 7+. souvenirs : toutes les photos, 9 par page ; toucher une photo l'agrandit
+    ...(photos.length ? Array.from({ length: Math.ceil(photos.length / 9) }, (_, k) => photos.slice(k * 9, k * 9 + 9)) : [[]]).map((lot, k, all) =>
+      page(all.length > 1 ? `Souvenirs ${k + 1}/${all.length}` : 'Souvenirs', lot.length ? `<div class="pp-pol">${lot.map(p => `<figure data-ph="${p.id}" style="transform:rotate(${(hashId(p.id) % 9) - 4}deg)"><div>${url(thumb(p.chemin)) ? `<img src="${esc(url(thumb(p.chemin)))}" alt="Photo du ${esc(fmtDate(p.date))}" loading="lazy">` : ''}</div><figcaption>${esc(fmtDate(p.date))}</figcaption></figure>`).join('')}</div>`
+        : vide('Pas encore de photo.'))),
   ];
 }
 const BOOK = { leaves: [], cur: 0, id: null, busy: false };
 async function openBook(id) {
   const c = C.find(x => x.id === id); if (!c) return;
   const i = C.filter(x => !x.decede).concat(C.filter(x => x.decede)).findIndex(x => x.id === id);
-  await signAll(photosOf(id).slice(0, 6).map(p => thumb(p.chemin)));
+  await signAll(photosOf(id).map(p => thumb(p.chemin)));
   const pages = bookPages(c, i), total = pages.length;
   const verso = k => `<div class="pp pp-verso"><span>${k}</span></div>`;
   // feuillets : la couverture, puis une page par feuillet (recto = contenu, verso = papier)
@@ -304,7 +306,9 @@ async function openBook(id) {
   st.onpointerup = e => {
     if (x0 === null) return; const dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) turn(dx < 0 ? 1 : -1);
-    else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) { const r = $('bk').getBoundingClientRect(); turn(e.clientX > r.left + r.width / 2 || BOOK.cur === 0 ? 1 : -1); }
+    else if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+      const ph = e.target.closest('[data-ph]') || (e.target.closest('.pass-photo') && e.target.closest('[data-ph-id]'));
+      if (ph) { openViewer(ph.dataset.ph || ph.dataset.phId); return; } const r = $('bk').getBoundingClientRect(); turn(e.clientX > r.left + r.width / 2 || BOOK.cur === 0 ? 1 : -1); }
   };
   setTimeout(() => { if (BOOK.id === id && BOOK.cur === 0) turn(1); }, 450);   // le passeport s'ouvre tout seul
 }
@@ -325,7 +329,7 @@ function turn(d) {
   $('bkN').textContent = '…';
 }
 function closeBook() { $('book').hidden = true; $('book').innerHTML = ''; BOOK.id = null; document.body.style.overflow = ''; }
-document.addEventListener('keydown', e => { if ($('book').hidden) return; if (e.key === 'ArrowRight') turn(1); else if (e.key === 'ArrowLeft') turn(-1); else if (e.key === 'Escape') closeBook(); });
+document.addEventListener('keydown', e => { if ($('book').hidden || !$('viewer').hidden) return; if (e.key === 'ArrowRight') turn(1); else if (e.key === 'ArrowLeft') turn(-1); else if (e.key === 'Escape') closeBook(); });
 
 /* ---------- cadrage de la photo du passeport ---------- */
 // Cadrage v2 : (cx, cy) = position de la tête dans l'image ; chaque cadre place la tête à sa hauteur « ay »
