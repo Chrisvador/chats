@@ -16,7 +16,7 @@
 <meta name="theme-color" content="#1a1714" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Atkinson+Hyperlegible:wght@400;700&family=Space+Mono:wght@400;700&display=swap">
 <style>
 :root{
   --bg:#f6f0e8; --paper:#fffbf6; --fg:#2a221c; --muted:#6c6158; --line:#e3d8cb;
@@ -70,6 +70,42 @@ h1,h2,h3{font-family:var(--f-head);font-weight:650;letter-spacing:-.01em;margin:
   padding:6px 4px;border-radius:12px;color:var(--muted);font-size:13px;font-weight:700;position:relative}
 .nav button[aria-current="page"]{color:var(--acc);background:var(--acc-soft)}
 .nav .dot{position:absolute;top:2px;left:calc(50% + 8px);background:var(--red);color:#fff;border-radius:999px;font-size:11px;min-width:18px;padding:0 5px;line-height:18px}
+
+/* chats : passeports */
+.passes{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,400px),1fr));gap:18px}
+.pass{--sand:#eadfc8;--sand2:#dccaa6;--ink:#3a2c1d;--lab:#8b6b45;position:relative;display:block;width:100%;text-align:left;border:0;padding:0;cursor:pointer;
+  color:var(--ink);border-radius:14px;overflow:hidden;font:inherit;isolation:isolate;
+  background:
+    radial-gradient(120% 90% at 85% 10%,rgba(255,255,255,.45),transparent 55%),
+    repeating-radial-gradient(circle at 18% 130%,rgba(139,107,69,.09) 0 1.2px,transparent 1.2px 7px),
+    repeating-linear-gradient(115deg,rgba(139,107,69,.05) 0 1px,transparent 1px 11px),
+    var(--sand);
+  box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 0 0 1px rgba(110,80,40,.18) inset,var(--shadow);transition:transform .2s}
+.pass:hover{transform:translateY(-2px)}
+.pass::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.12;
+  background:no-repeat right -40px bottom -50px/230px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='%238b6b45'%3E%3Cellipse cx='50' cy='61' rx='15' ry='12.5'/%3E%3Cellipse cx='31' cy='44' rx='6.2' ry='8' transform='rotate(-22 31 44)'/%3E%3Cellipse cx='43' cy='34' rx='6.4' ry='8.6' transform='rotate(-6 43 34)'/%3E%3Cellipse cx='57' cy='34' rx='6.4' ry='8.6' transform='rotate(6 57 34)'/%3E%3Cellipse cx='69' cy='44' rx='6.2' ry='8' transform='rotate(22 69 44)'/%3E%3C/g%3E%3C/svg%3E")}
+.pass-top{display:flex;align-items:baseline;gap:10px;padding:10px 16px 8px;background:linear-gradient(var(--sand2),rgba(220,202,166,.6));border-bottom:1px solid rgba(110,80,40,.25)}
+.pass-top .pt{flex:1;font:650 15px var(--f-head);letter-spacing:.22em;text-transform:uppercase}
+.pass-top .pn{font:700 12px "Space Mono",ui-monospace,monospace;letter-spacing:.06em;color:#9a3b2c}
+.pass-alert{position:absolute;top:44px;right:12px;z-index:3;font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;background:#f3e3b8;color:#7a5600;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.pass-alert.red{background:#b8352c;color:#fff}
+.pass-body{display:grid;grid-template-columns:118px 1fr;gap:14px;padding:14px 16px 10px}
+.pass-photo{width:118px;aspect-ratio:3/4;border-radius:6px;overflow:hidden;background:#d7c39d;display:grid;place-items:center;color:#8b6b45;
+  box-shadow:0 0 0 3px rgba(255,255,255,.55),0 0 0 4px rgba(110,80,40,.25);position:relative}
+.pass-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:sepia(.18) saturate(.92) contrast(1.03)}
+.pass-f{margin:0;display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;align-content:start;min-width:0}
+.pass-f .full{grid-column:1/-1}
+.pass-f dt{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--lab)}
+.pass-f dd{margin:1px 0 0;font:700 13px/1.25 "Space Mono",ui-monospace,monospace;text-transform:uppercase;word-break:break-word}
+.pass-f dd.nm{font:650 25px/1.05 var(--f-head);text-transform:none;letter-spacing:.01em}
+.mrz{margin:2px 0 0;padding:8px 16px 11px;font:400 12.5px/1.45 "Space Mono",ui-monospace,monospace;letter-spacing:.13em;color:#4c3c29;
+  white-space:nowrap;overflow:hidden;border-top:1px dashed rgba(110,80,40,.3);background:rgba(255,255,255,.18)}
+.pass-l{display:flex;flex-direction:column;align-items:center}
+.stamp{width:108px;height:108px;margin:-34px 0 -8px 26px;z-index:2;opacity:.82;mix-blend-mode:multiply;pointer-events:none;flex:none}
+.pass.gone .pass-photo img{filter:grayscale(1) contrast(1.05)}
+.pass.gone{--sand:#e2ddd3;--sand2:#d3ccbe}
+@media (max-width:380px){.pass-body{grid-template-columns:96px 1fr;gap:12px}.pass-photo{width:96px}.stamp{width:92px;height:92px;margin-left:16px}.pass-f dd.nm{font-size:22px}.mrz{font-size:11px;letter-spacing:.08em}}
+@media (prefers-reduced-motion:reduce){.pass:hover{transform:none}}
 
 /* chats */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
@@ -275,6 +311,7 @@ legend{font:650 18px var(--f-head);margin:8px 0 4px}
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12l1 4v13a1 1 0 01-1 1H6a1 1 0 01-1-1V7z"/><path d="M5 7h14M10 12h4"/></svg>Stocks<span class="dot" id="dotStocks" hidden></span></button>
 </nav>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="encre" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" result="d"/><feComponentTransfer in="n" result="m"><feFuncA type="discrete" tableValues="0 1 1 1 1 .6"/></feComponentTransfer><feComposite in="d" in2="m" operator="in"/></filter></svg>
 <div id="sheet" class="sheet" hidden></div>
 <div id="viewer" class="viewer" hidden></div>
 <div id="toast" class="toast" hidden role="status"></div>

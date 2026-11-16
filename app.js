@@ -156,18 +156,54 @@ function render() {
   if (view === 'chats') renderChats(); else if (view === 'soins') renderSoins(); else renderStocks();
 }
 
+/* ---------- accueil : pages de passeport ---------- */
+const PAW = '<g fill="currentColor"><ellipse cx="50" cy="61" rx="15" ry="12.5"/><ellipse cx="31" cy="44" rx="6.2" ry="8" transform="rotate(-22 31 44)"/><ellipse cx="43" cy="34" rx="6.4" ry="8.6" transform="rotate(-6 43 34)"/><ellipse cx="57" cy="34" rx="6.4" ry="8.6" transform="rotate(6 57 34)"/><ellipse cx="69" cy="44" rx="6.2" ry="8" transform="rotate(22 69 44)"/></g>';
+const INKS = ['#a8322a', '#2b5d8c', '#3c6a44', '#6c3f7a'];
+const hashId = s => [...String(s)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+const sansAcc = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+const mrzTxt = (s, n) => (sansAcc(s).replace(/[^A-Z0-9]+/g, '<') + '<'.repeat(n)).slice(0, n);
+function tampon(c, i) {
+  const h = hashId(c.id), ink = c.decede ? '#7b7066' : INKS[i % INKS.length], rot = (h % 27) - 13;
+  const txt = `${sansAcc(foyer.nom)} · ${c.decede ? 'EN SOUVENIR' : 'CHAT DU FOYER'} · `;
+  return `<svg class="stamp" viewBox="0 0 100 100" style="color:${ink};transform:rotate(${rot}deg)" aria-hidden="true">
+    <g filter="url(#encre)"><circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="50" cy="50" r="39.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path id="arc-${c.id}" d="M50 50 m-35.5 0 a35.5 35.5 0 1 1 71 0 a35.5 35.5 0 1 1 -71 0" fill="none"/>
+    <text font-size="7.8" font-weight="700" letter-spacing="1" fill="currentColor"><textPath href="#arc-${c.id}" textLength="214">${esc(txt)}</textPath></text>
+    <g transform="translate(27 17) scale(.46)">${PAW}</g>
+    <text x="50" y="66" text-anchor="middle" font-size="7" font-weight="700" letter-spacing=".8" fill="currentColor">${esc(c.date_arrivee ? fmtDate(c.date_arrivee).toUpperCase() : 'VALIDÉ')}</text></g></svg>`;
+}
 function renderChats() {
   const list = C.filter(c => !c.decede).concat(C.filter(c => c.decede));
   if (!list.length) { $('vChats').innerHTML = `<div class="empty">${ICON_CAT}<p>Aucun chat pour l'instant.<br>Ajoutez le premier avec le bouton <b>Chat</b>.</p></div>`; return; }
-  $('vChats').innerHTML = `<div class="grid">${list.map(c => {
-    const p = mainPhoto(c), u = p && url(thumb(p.chemin)), w = poids(c.id);
+  $('vChats').innerHTML = `<div class="passes">${list.map((c, i) => {
+    const p = mainPhoto(c), u = p && (url(thumb(p.chemin)) || url(p.chemin)), w = poids(c.id);
     const t = trActifs().filter(x => x.chat_id === c.id), late = t.filter(x => ['late', 'today'].includes(etat(x))).length, soon = t.filter(x => etat(x) === 'soon').length;
-    const bits = [age(c.date_naissance), w && fmtNum(w.poids_kg, 2) + ' kg'].filter(Boolean).join(' · ');
-    return `<button class="card" data-id="${c.id}"><div class="ph">${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : ICON_CAT}
-      <div class="badges">${late ? `<span class="badge red">${plur(late, 'soin')} à faire</span>` : soon ? `<span class="badge amber">Soin cette semaine</span>` : ''}${c.decede ? '<span class="badge amber">Parti</span>' : ''}</div></div>
-      <div class="body"><h3>${esc(c.nom)}</h3><div class="meta">${esc(bits || [VIES[c.mode_vie], c.race].filter(Boolean).join(' · ') || ' ')}</div></div></button>`;
+    const num = c.id.replace(/-/g, '').slice(0, 9).toUpperCase();
+    const nais = c.date_naissance ? (c.naissance_estimee ? 'vers ' : '') + fmtDate(c.date_naissance) : '—';
+    const f = (k, v, cls = '') => `<div class="${cls}"><dt>${k}</dt><dd>${esc(v || '—')}</dd></div>`;
+    const yymmdd = c.date_naissance ? c.date_naissance.slice(2).replace(/-/g, '') : '<<<<<<';
+    const mrz1 = mrzTxt(`P<CHT${c.nom}<<${c.robe || ''}`, 36), mrz2 = mrzTxt(num, 10) + yymmdd + (c.sexe === 'femelle' ? 'F' : c.sexe === 'male' ? 'M' : '<') + mrzTxt(foyer.nom, 19);
+    return `<button class="pass${c.decede ? ' gone' : ''}" data-id="${c.id}" aria-label="Passeport de ${esc(c.nom)}">
+      <div class="pass-top"><span class="pt">Passeport félin</span><span class="pn">N° ${num}</span></div>
+      ${late ? `<span class="pass-alert red">${plur(late, 'soin')} à faire</span>` : soon ? `<span class="pass-alert">Soin cette semaine</span>` : ''}
+      <div class="pass-body">
+        <div class="pass-l"><div class="pass-photo">${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : ICON_CAT}</div>${tampon(c, i)}</div>
+        <dl class="pass-f">
+          <div class="full"><dt>Nom / Name</dt><dd class="nm">${esc(c.nom)}</dd></div>
+          ${f('Sexe', c.sexe ? (c.sexe === 'femelle' ? 'F' : 'M') : '')}
+          ${f('Né(e) le', nais)}
+          ${f('Robe', c.robe)}
+          ${f('Âge', age(c.date_naissance))}
+          ${f('Mode de vie', { interieur: 'Intérieur', exterieur: 'Extérieur', mixte: 'Mixte' }[c.mode_vie])}
+          ${f('Poids', w && fmtNum(w.poids_kg, 2) + ' kg')}
+          ${f(c.sexe === 'femelle' ? 'Stérilisée' : 'Stérilisé', c.sterilise ? 'Oui' : 'Non')}
+          ${c.puce ? f('Puce', c.puce, 'full') : ''}
+        </dl>
+      </div>
+      <div class="mrz" aria-hidden="true">${esc(mrz1)}<br>${esc(mrz2)}</div>
+    </button>`;
   }).join('')}</div>`;
-  $('vChats').querySelectorAll('.card').forEach(b => b.onclick = () => openChat(b.dataset.id));
+  $('vChats').querySelectorAll('.pass').forEach(b => b.onclick = () => openChat(b.dataset.id));
 }
 
 function trItem(t, withChat = true) {
