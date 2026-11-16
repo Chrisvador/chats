@@ -40,11 +40,13 @@ const SEXES = { male: 'Mâle', femelle: 'Femelle' };
 const VIES = { interieur: 'Intérieur', exterieur: 'Extérieur', mixte: 'Intérieur et extérieur' };
 const TYPES = { vermifuge: 'Vermifuge', antiparasitaire: 'Antipuces / tiques', vaccin: 'Vaccin', medicament: 'Médicament', soin: 'Soin', entretien: 'Entretien', autre: 'Autre' };
 const TYPES_ALL = { ...TYPES, rdv: 'RDV vétérinaire' };
-const MOTIFS = { controle: 'Contrôle / bilan', vaccin: 'Vaccin', puce: 'Puçage / identification', sterilisation: 'Stérilisation', maladie: 'Maladie / blessure', dents: 'Dents / détartrage', analyses: 'Analyses', autre: 'Autre' };
+const MOTIFS = { controle: 'Contrôle / bilan', vaccin: 'Vaccin', puce: 'Puçage / identification', sterilisation: 'Stérilisation / castration', maladie: 'Maladie / blessure', dents: 'Dents / détartrage', analyses: 'Analyses', autre: 'Autre' };
 const fmtHeure = h => h ? h.slice(0, 5).replace(':', ' h ').replace(/ h 00$/, ' h') : '';
 const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
 const fmtJour = d => `${JOURS[new Date(d + 'T12:00:00').getDay()]} ${fmtDate(d)}`;
 const isRdv = t => t.type === 'rdv';
+// Mâle : castré / castration ; femelle : stérilisée / stérilisation
+const ster = sexe => sexe === 'male' ? { adj: 'Castré', acte: 'Castration' } : sexe === 'femelle' ? { adj: 'Stérilisée', acte: 'Stérilisation' } : { adj: 'Stérilisé(e)', acte: 'Stérilisation' };
 const FREQS = [[0, 'Une seule fois'], [1, 'Tous les jours'], [7, 'Toutes les semaines'], [14, 'Toutes les 2 semaines'], [30, 'Tous les mois'], [90, 'Tous les 3 mois'], [180, 'Tous les 6 mois'], [365, 'Tous les ans']];
 const freqLbl = f => { if (!f) return 'Une seule fois'; const k = FREQS.find(x => x[0] === f); return k ? k[1] : `Tous les ${f} jours`; };
 const freqTxt = t => t.jour_mois ? `Le ${t.jour_mois === 1 ? '1er' : t.jour_mois} de chaque mois` : freqLbl(t.frequence_jours);
@@ -196,7 +198,7 @@ function renderChats() {
           ${f('Âge', age(c.date_naissance))}
           ${f('Mode de vie', { interieur: 'Intérieur', exterieur: 'Extérieur', mixte: 'Mixte' }[c.mode_vie])}
           ${f('Poids', w && fmtNum(w.poids_kg, 2) + ' kg')}
-          ${f(c.sexe === 'femelle' ? 'Stérilisée' : 'Stérilisé', c.sterilise ? 'Oui' : 'Non')}
+          ${f(ster(c.sexe).adj, c.sterilise ? 'Oui' : 'Non')}
           ${c.puce ? f('Puce', c.puce, 'full') : ''}
         </dl>
       </div>
@@ -271,7 +273,7 @@ function trItem(t, withChat = true) {
   const quand = !t.prochaine_date ? '' : rdv ? (e === 'late' ? 'Passé — à compléter' : `${daysBetween(today(), t.prochaine_date) <= 1 ? relDay(t.prochaine_date) : fmtJour(t.prochaine_date)}${t.heure ? ' · ' + fmtHeure(t.heure) : ''}`) : relDay(t.prochaine_date);
   const when = quand ? `<div class="when ${e === 'late' || e === 'today' ? 'late' : e === 'soon' ? 'soon' : ''}">${esc(quand)}</div>` : '';
   const btn = !t.actif ? '' : rdv ? (e === 'late' || e === 'today' ? `<button class="btn sm ok" data-fait="${t.id}">Bilan</button>` : '') : `<button class="btn sm ${e === 'late' || e === 'today' ? 'ok' : ''}" data-fait="${t.id}">Fait</button>`;
-  const sous = rdv ? [t.nom !== MOTIFS[t.motif] ? MOTIFS[t.motif] : null, t.lieu].filter(Boolean).join(' · ') : freqTxt(t);
+  const sous = rdv ? [![MOTIFS[t.motif], 'Castration', 'Stérilisation'].includes(t.nom) ? MOTIFS[t.motif] : null, t.lieu].filter(Boolean).join(' · ') : freqTxt(t);
   return `<div class="item clic" data-tr="${t.id}">${withChat ? `<div class="av">${maison ? I_HOME : avatar(c)}</div>` : `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span>`}
     <div><div class="t">${withChat && !maison ? esc(c?.nom || '—') + ' · ' : ''}${esc(t.nom)}${t.dose ? ` <span class="s">(${esc(t.dose)})</span>` : ''}</div>
     <div class="s">${withChat ? `<span class="tag ${t.type}">${esc(TYPES_ALL[t.type])}</span> ` : ''}${esc(sous)}</div>${when}</div>${btn}</div>`;
@@ -368,7 +370,7 @@ function renderChat(keepScroll) {
       ${fact('Mode de vie', VIES[c.mode_vie])}
       ${fact('Arrivée', [c.date_arrivee && fmtDate(c.date_arrivee), c.provenance].filter(Boolean).join(' · '))}
       ${fact('Puce', c.puce)}${fact('Tatouage', c.tatouage)}
-      ${fact('Stérilisation', c.date_sterilisation && fmtDate(c.date_sterilisation))}
+      ${fact(ster(c.sexe).acte, c.date_sterilisation && fmtDate(c.date_sterilisation))}
       ${fact('Vétérinaire', c.veterinaire)}${fact('Assurance', c.assurance)}
     </div>
     <div class="section-title"><h3>Soins et rendez-vous</h3><button class="btn sm" id="addTr">+ Ajouter</button></div>
@@ -434,8 +436,8 @@ function chatForm(c) {
       <label class="field"><span>Robe</span><input id="c_robe" value="${esc(c.robe)}" placeholder="Tigré roux…"></label></div>
     <div class="row2"><label class="field"><span>Yeux</span><input id="c_yeux" value="${esc(c.yeux)}"></label>
       <label class="field"><span>Poids actuel (kg)</span><input id="c_poids" type="number" step="0.01" min="0.1" max="25" inputmode="decimal" placeholder="${esc(poids(c.id)?.poids_kg ?? '')}"><small>Ajoute une pesée datée d'aujourd'hui</small></label></div>
-    <div class="row2"><label class="check"><input type="checkbox" id="c_ster"${c.sterilise ? ' checked' : ''}>Stérilisé(e)</label>
-      <label class="field"><span>Date de stérilisation</span><input type="date" id="c_dster" value="${esc(c.date_sterilisation)}"></label></div>
+    <div class="row2"><label class="check"><input type="checkbox" id="c_ster"${c.sterilise ? ' checked' : ''}><span id="c_sterL">${ster(c.sexe).adj}</span></label>
+      <label class="field"><span id="c_dsterL">Date de ${ster(c.sexe).acte.toLowerCase()}</span><input type="date" id="c_dster" value="${esc(c.date_sterilisation)}"></label></div>
     <div class="row2"><label class="field"><span>N° de puce</span><input id="c_puce" inputmode="numeric" value="${esc(c.puce)}"></label>
       <label class="field"><span>Tatouage</span><input id="c_tat" value="${esc(c.tatouage)}"></label></div>
     <div class="row2"><label class="field"><span>Arrivé(e) le</span><input type="date" id="c_arr" value="${esc(c.date_arrivee)}"></label>
@@ -451,6 +453,7 @@ function chatForm(c) {
     <div class="foot">${n ? '' : `<button type="button" class="btn danger" id="c_del">${I_DEL}Supprimer</button>`}<span class="spacer"></span><button class="btn pri" type="submit">Enregistrer</button></div>
   </form>`, { back: n ? null : backToChat(c.id) });
   if (!n) $('c_del').onclick = () => delChat(c);
+  $('c_sexe').onchange = () => { const s = ster($('c_sexe').value); $('c_sterL').textContent = s.adj; $('c_dsterL').textContent = 'Date de ' + s.acte.toLowerCase(); };
   $('fc').onsubmit = async e => {
     e.preventDefault();
     const row = { nom: val('c_nom'), sexe: val('c_sexe'), mode_vie: val('c_vie'), date_naissance: val('c_nais'), naissance_estimee: $('c_est').checked,
@@ -544,7 +547,7 @@ function trForm(t, chatId, back) {
 function ajoutSoin(chatId, back) {
   if (chatId === 'maison') return trForm(null, 'maison', back);
   openSheet('Ajouter', `<div class="list">
-    <button class="item clic" id="aRdv" style="text-align:left;border:0;font:inherit"><div class="av">${I_STETH}</div><div><div class="t">Rendez-vous vétérinaire</div><div class="s">Contrôle, vaccin, puçage, stérilisation…</div></div><span></span></button>
+    <button class="item clic" id="aRdv" style="text-align:left;border:0;font:inherit"><div class="av">${I_STETH}</div><div><div class="t">Rendez-vous vétérinaire</div><div class="s">Contrôle, vaccin, puçage, castration……</div></div><span></span></button>
     <button class="item clic" id="aTr" style="text-align:left;border:0;font:inherit"><div class="av">${I_PILL}</div><div><div class="t">Traitement ou entretien</div><div class="s">Vermifuge, antipuces, médicament, fontaine…</div></div><span></span></button></div>`, { back });
   $('aRdv').onclick = () => rdvForm(null, chatId, back);
   $('aTr').onclick = () => trForm(null, chatId, back);
@@ -567,7 +570,7 @@ function rdvForm(t, chatId, back) {
     <div class="row2"><label class="field"><span>Date</span><input type="date" id="r_d" required value="${esc(t.prochaine_date)}"></label>
       <label class="field"><span>Heure</span><input type="time" id="r_h" step="300" value="${esc((t.heure || '').slice(0, 5))}"></label></div>
     <label class="field"><span>Vétérinaire / lieu</span><input id="r_lieu" value="${esc(n ? vetoDe(t.chat_id) : t.lieu)}" placeholder="Ex. Clinique vétérinaire d'Illkirch"></label>
-    <label class="field"><span>Précisions</span><input id="r_nom" value="${esc(n ? '' : t.nom === MOTIFS[t.motif] ? '' : t.nom)}" placeholder="Ex. rappel typhus, boiterie patte arrière…"></label>
+    <label class="field"><span>Précisions</span><input id="r_nom" value="${esc(n ? '' : [MOTIFS[t.motif], 'Castration', 'Stérilisation'].includes(t.nom) ? '' : t.nom)}" placeholder="Ex. rappel typhus, boiterie patte arrière…"></label>
     <label class="field"><span>À ne pas oublier</span><textarea id="r_notes" placeholder="Carnet de santé, à jeun, questions à poser…">${esc(t.notes)}</textarea><small>Rappel la veille et le jour même, à l'heure réglée pour le foyer.</small></label>
     <p class="err" id="r_err"></p>
     <div class="foot">${n ? '' : `<button type="button" class="btn danger" id="r_del">${I_DEL}Supprimer</button>`}<span class="spacer"></span>
@@ -578,7 +581,8 @@ function rdvForm(t, chatId, back) {
   $('fr').onsubmit = async e => {
     e.preventDefault();
     const motif = $('r_motif').value;
-    const row = { chat_id: $('r_chat').value, type: 'rdv', motif, nom: val('r_nom') || MOTIFS[motif], prochaine_date: $('r_d').value, heure: $('r_h').value || null,
+    const rc = C.find(x => x.id === $('r_chat').value);
+    const row = { chat_id: $('r_chat').value, type: 'rdv', motif, nom: val('r_nom') || (motif === 'sterilisation' ? ster(rc && rc.sexe).acte : MOTIFS[motif]), prochaine_date: $('r_d').value, heure: $('r_h').value || null,
       lieu: val('r_lieu'), notes: val('r_notes'), frequence_jours: null, jour_mois: null, produit_id: null, derniere_notif: null };
     const r = n ? await sb.from('traitements').insert({ ...row, foyer_id: foyer.id }).select().single() : await sb.from('traitements').update(row).eq('id', t.id).select().single();
     if (r.error) { $('r_err').textContent = r.error.message; return; }
@@ -598,7 +602,7 @@ function faitForm(t, back) {
     <div class="row2"><label class="field"><span>Poids mesuré (kg)</span><input id="p_w" type="number" step="0.01" min="0.1" max="25" inputmode="decimal" placeholder="Facultatif"></label>
       <label class="field"><span>Coût (€)</span><input id="p_eur" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Facultatif"></label></div>
     ${t.motif === 'puce' ? `<label class="field"><span>N° de puce</span><input id="p_puce" inputmode="numeric" value="${esc(chat && chat.puce)}"><small>Enregistré dans la fiche de ${esc(chat ? chat.nom : 'ce chat')}.</small></label>` : ''}
-    ${t.motif === 'sterilisation' ? `<label class="check"><input type="checkbox" id="p_ster" checked>Marquer ${esc(chat ? chat.nom : 'ce chat')} comme stérilisé(e) dans sa fiche</label>` : ''}`
+    ${t.motif === 'sterilisation' ? `<label class="check"><input type="checkbox" id="p_ster" checked>Marquer ${esc(chat ? chat.nom : 'ce chat')} comme ${esc(ster(chat && chat.sexe).adj.toLowerCase())} dans sa fiche</label>` : ''}`
     : '<label class="field"><span>Remarque</span><input id="p_n" placeholder="Facultatif"></label>'}
     <p class="status" id="p_info"></p><p class="err" id="p_err"></p>
     <div class="foot"><button class="btn ok" type="submit">Valider</button></div></form>`, { back });
