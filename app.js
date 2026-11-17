@@ -243,7 +243,6 @@ function bookPages(c, i) {
   const para = prises.filter(x => ['vermifuge', 'antiparasitaire'].includes(x.t.type));
   const veto = prises.filter(x => isRdv(x.t));
   const autres = prises.filter(x => ['medicament', 'soin', 'autre'].includes(x.t.type));
-  const photos = photosOf(c.id);
 
   return [
     // 1. identité (page de données)
@@ -267,11 +266,6 @@ function bookPages(c, i) {
       ${ch('Mode de vie', VIES[c.mode_vie])}${ch('Vétérinaire', c.veterinaire)}${ch('Assurance', c.assurance)}</dl>
       ${[['Caractère', c.caractere], ['Alimentation', c.alimentation], ['Santé', c.sante]].filter(x => x[1]).map(([k, v]) => `<div class="pp-note"><dt>${k}</dt><p>${esc(v)}</p></div>`).join('')}
       <div class="pp-sign"><span>Signature du titulaire</span><svg viewBox="0 0 100 100" width="46" height="46" style="color:#3a2c1d;transform:rotate(-14deg)" aria-hidden="true">${PAW}</svg></div>`),
-    // 7. souvenirs
-    // 7+. souvenirs : toutes les photos, 9 par page ; toucher une photo l'agrandit
-    ...(photos.length ? Array.from({ length: Math.ceil(photos.length / 9) }, (_, k) => photos.slice(k * 9, k * 9 + 9)) : [[]]).map((lot, k, all) =>
-      page(all.length > 1 ? `Souvenirs ${k + 1}/${all.length}` : 'Souvenirs', lot.length ? `<div class="pp-pol">${lot.map(p => `<figure data-ph="${p.id}" style="transform:rotate(${(hashId(p.id) % 9) - 4}deg)"><div>${url(thumb(p.chemin)) ? `<img src="${esc(url(thumb(p.chemin)))}" alt="Photo du ${esc(fmtDate(p.date))}" loading="lazy">` : ''}</div><figcaption>${esc(fmtDate(p.date))}</figcaption></figure>`).join('')}</div>`
-        : vide('Pas encore de photo.'))),
   ];
 }
 const BOOK = { leaves: [], cur: 0, id: null, busy: false };
@@ -279,7 +273,7 @@ async function openBook(id) {
   const c = C.find(x => x.id === id); if (!c) return;
   const i = C.filter(x => !x.decede).concat(C.filter(x => x.decede)).findIndex(x => x.id === id);
   await signAll(photosOf(id).map(p => thumb(p.chemin)));
-  const pages = bookPages(c, i), total = pages.length;
+  const pages = bookPages(c, i);
   const verso = k => `<div class="pp pp-verso"><span>${k}</span></div>`;
   // feuillets : la couverture, puis une page par feuillet (recto = contenu, verso = papier)
   const cover = `<div class="cover"><div class="cv-in"><span class="cv-top">Passeport félin</span>
@@ -288,14 +282,29 @@ async function openBook(id) {
       <svg class="cv-chip" viewBox="0 0 60 36" aria-hidden="true"><rect x="1" y="1" width="58" height="34" rx="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="30" cy="18" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M1 18h23M36 18h23" stroke="currentColor" stroke-width="2"/></svg></div></div>`;
   const endpaper = `<div class="pp pp-garde"><p>Ce passeport appartient à</p><b>${esc(c.nom)}</b><p>et au foyer « ${esc(foyer.nom)} »</p></div>`;
   const backCover = `<div class="cover back"><div class="cv-in"><svg class="cv-emb small" viewBox="0 0 100 100" aria-hidden="true">${PAW}</svg><span class="cv-sub">Fin du passeport</span></div></div>`;
-  const leaves = [[cover, endpaper]].concat(pages.map((p, k) => [p, k === pages.length - 1 ? backCover : verso(k + 2)]));
+  // Photos : réparties sur les pages de gauche (versos), sauf la toute première (page de garde)
+  const photos = photosOf(id), slots = pages.length - 1, groupes = [];
+  if (photos.length <= slots * 9) {
+    const s = Math.min(photos.length, slots), base = s ? Math.floor(photos.length / s) : 0, plus = s ? photos.length % s : 0;
+    for (let k = 0, at = 0; k < s; k++) { const n = base + (k < plus ? 1 : 0); groupes.push(photos.slice(at, at + n)); at += n; }
+  } else for (let at = 0; at < photos.length; at += 9) groupes.push(photos.slice(at, at + 9));
+  const album = lot => { const g = lot.length <= 1 ? 1 : lot.length === 2 ? 2 : lot.length <= 4 ? 4 : lot.length <= 6 ? 6 : 9;
+    return `<div class="pp pp-album"><div class="pp-h"><span>Album</span><span>${esc(c.nom)}</span></div><div class="pp-b"><div class="pp-pol g${g}">${lot.map(p =>
+      `<figure data-ph="${p.id}" style="transform:rotate(${(hashId(p.id) % 9) - 4}deg)"><div>${url(thumb(p.chemin)) ? `<img src="${esc(url(thumb(p.chemin)))}" alt="Photo du ${esc(fmtDate(p.date))}" loading="lazy">` : ''}</div><figcaption>${esc(fmtDate(p.date))}</figcaption></figure>`).join('')}</div></div></div>`; };
+  const leaves = [[cover, endpaper]];
+  pages.forEach((p, k) => leaves.push([p, k < slots ? (groupes[k] ? album(groupes[k]) : verso(k + 2)) : null]));
+  const reste = groupes.slice(slots);            // plus de 45 photos : feuillets d'album en plus à la fin
+  const last = leaves[leaves.length - 1];
+  if (!reste.length) last[1] = backCover;
+  else { last[1] = album(reste.shift()); while (reste.length) leaves.push([album(reste.shift()), reste.length ? album(reste.shift()) : backCover]);
+    if (leaves[leaves.length - 1][1] !== backCover) leaves.push([verso(''), backCover]); }
   const b = $('book');
   b.innerHTML = `<div class="bk-bar"><button class="iconbtn bk-x" id="bkX" aria-label="Fermer">${I_CLOSE}</button><span class="bk-t">${esc(c.nom)}</span>
       <button class="btn sm" id="bkFiche">Fiche complète</button></div>
     <div class="bk-stage" id="bkS"><div class="bk" id="bk">${leaves.map(([f, r], k) => `<div class="leaf" data-k="${k}"><div class="face front">${f}</div><div class="face back">${r}</div></div>`).join('')}</div></div>
     <div class="bk-nav"><button class="btn sm" id="bkP" aria-label="Page précédente">‹</button><span id="bkN"></span><button class="btn sm" id="bkNx" aria-label="Page suivante">›</button></div>`;
   b.hidden = false; document.body.style.overflow = 'hidden';
-  Object.assign(BOOK, { leaves: [...b.querySelectorAll('.leaf')], cur: 0, id, busy: false, total: total + 1 });
+  Object.assign(BOOK, { leaves: [...b.querySelectorAll('.leaf')], cur: 0, left: false, id, busy: false });
   layoutBook(); cadrer(b);
   $('bkX').onclick = closeBook;
   $('bkFiche').onclick = () => { closeBook(); openChat(id); };
@@ -312,22 +321,35 @@ async function openBook(id) {
   };
   setTimeout(() => { if (BOOK.id === id && BOOK.cur === 0) turn(1); }, 450);   // le passeport s'ouvre tout seul
 }
+const etroit = () => matchMedia('(max-width:859px)').matches;
 function layoutBook() {
   const n = BOOK.leaves.length;
+  if (!etroit()) BOOK.left = false;
   BOOK.leaves.forEach((l, k) => { const f = k < BOOK.cur; l.classList.toggle('flipped', f); l.style.zIndex = f ? k + 1 : n - k; });
-  $('book').classList.toggle('open', BOOK.cur > 0);
-  $('bkN').textContent = BOOK.cur === 0 ? 'Couverture' : BOOK.cur >= n ? 'Fin' : `${BOOK.cur} / ${n - 1}`;
-  $('bkP').disabled = BOOK.cur === 0; $('bkNx').disabled = BOOK.cur >= n;
+  $('book').classList.toggle('open', BOOK.cur > 0); $('book').classList.toggle('gauche', BOOK.left);
+  let lbl, fin;
+  if (etroit()) { const p = BOOK.cur * 2 - (BOOK.left ? 1 : 0); fin = BOOK.left && BOOK.cur >= n; lbl = p === 0 ? 'Couverture' : fin ? 'Fin' : `${p} / ${2 * n - 2}`; }
+  else { fin = BOOK.cur >= n; lbl = BOOK.cur === 0 ? 'Couverture' : fin ? 'Fin' : `${BOOK.cur} / ${n - 1}`; }
+  $('bkN').textContent = lbl; $('bkP').disabled = BOOK.cur === 0; $('bkNx').disabled = fin;
 }
 function turn(d) {
-  const n = BOOK.leaves.length, nx = BOOK.cur + d;
-  if (BOOK.busy || nx < 0 || nx > n) return;
-  const l = BOOK.leaves[d > 0 ? BOOK.cur : nx];
-  l.style.zIndex = 500; BOOK.busy = true; BOOK.cur = nx;
-  l.classList.toggle('flipped', d > 0); $('book').classList.toggle('open', BOOK.cur > 0);
-  setTimeout(() => { BOOK.busy = false; layoutBook(); }, 620);
+  const n = BOOK.leaves.length; if (BOOK.busy) return;
+  let flip = null;                                   // feuillet qui tourne : [indice, vers la gauche ?]
+  if (etroit()) {
+    // une page à la fois : on tourne la page de droite, puis on fait glisser le livret pour lire celle de gauche
+    if (d > 0) { if (!BOOK.left) { if (BOOK.cur >= n) return; flip = [BOOK.cur, true]; BOOK.cur++; BOOK.left = true; } else { if (BOOK.cur >= n) return; BOOK.left = false; } }
+    else { if (BOOK.left) { flip = [BOOK.cur - 1, false]; BOOK.cur--; BOOK.left = false; } else { if (BOOK.cur === 0) return; BOOK.left = true; } }
+  } else {
+    const nx = BOOK.cur + d; if (nx < 0 || nx > n) return;
+    flip = [d > 0 ? BOOK.cur : nx, d > 0]; BOOK.cur = nx;
+  }
+  BOOK.busy = true;
+  if (flip) { const l = BOOK.leaves[flip[0]]; l.style.zIndex = 500; l.classList.toggle('flipped', flip[1]); }
+  $('book').classList.toggle('open', BOOK.cur > 0); $('book').classList.toggle('gauche', BOOK.left);
   $('bkN').textContent = '…';
+  setTimeout(() => { BOOK.busy = false; layoutBook(); }, 620);
 }
+window.addEventListener('resize', () => { if (BOOK.id) layoutBook(); });
 function closeBook() { $('book').hidden = true; $('book').innerHTML = ''; BOOK.id = null; document.body.style.overflow = ''; }
 document.addEventListener('keydown', e => { if ($('book').hidden || !$('viewer').hidden) return; if (e.key === 'ArrowRight') turn(1); else if (e.key === 'ArrowLeft') turn(-1); else if (e.key === 'Escape') closeBook(); });
 
